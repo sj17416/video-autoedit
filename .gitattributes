@@ -1,0 +1,5 @@
+# Windows 배치 파일은 CRLF 유지 (LF면 cmd가 한글 줄을 잘못 읽음)
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ico binary
+*.png binary

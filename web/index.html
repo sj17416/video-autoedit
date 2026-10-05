@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>영상 자동 편집기</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pretendard@1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="/static/style.css">
+<link rel="icon" href="/static/icon.png">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><img class="logo-img" src="/static/icon.png" alt=""> 영상 자동 편집기</div>
+  <div class="top-actions">
+    <button id="outDirBtn" class="pill" title="완성본(영상·자막)이 저장되는 폴더 — 클릭해서 변경"></button>
+    <button id="openFolderBtn" class="pill">폴더 열기</button>
+    <button id="quitBtn" class="pill" title="앱(서버)을 완전히 종료합니다">앱 종료</button>
+  </div>
+</header>
+<div id="toast" class="toast" hidden></div>
+
+<div class="layout">
+  <!-- ================= 왼쪽 ================= -->
+  <div class="col">
+    <section class="card">
+      <h2><span class="num">1</span> 영상</h2>
+      <label class="dropzone" id="dropzone">
+        <input type="file" id="videoInput" accept="video/*" hidden>
+        <strong>영상을 여기에 끌어다 놓거나 클릭해서 선택</strong>
+        <span>projects/ 폴더에 저장됩니다</span>
+      </label>
+      <div id="uploadProgress" class="upload-progress" hidden><div></div></div>
+      <div id="projectList" class="project-list"></div>
+      <div class="row-btns">
+        <button id="refreshBtn" class="btn">새로고침</button>
+        <button id="clearCacheBtn" class="btn">선택 영상 캐시 삭제</button>
+        <button id="deleteProjectBtn" class="btn ghost danger">목록에서 삭제</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2><span class="num gear">⚙</span> 설정 (API 키)</h2>
+      <label class="key-field">
+        <span>Claude (기획 · 자막 교정) <em id="keyAnthropic"></em></span>
+        <input type="password" id="anthropicKey" placeholder="ANTHROPIC_API_KEY (sk-ant-...)" autocomplete="off">
+      </label>
+      <label class="key-field">
+        <span>OpenAI (그림 생성) <em id="keyOpenai"></em></span>
+        <input type="password" id="openaiKey" placeholder="OPENAI_API_KEY (sk-...)" autocomplete="off">
+      </label>
+      <button id="saveKeysBtn" class="btn yellow">저장</button>
+      <p class="hint">.env 파일에 저장됩니다. 비워 두면 기존 값 유지.</p>
+    </section>
+
+    <section class="card">
+      <h2><span class="num gear">🎨</span> 그림체 참고 이미지</h2>
+      <p class="hint">여기 올린 그림의 스타일(색감·선·캐릭터)을 따라 그립니다. 최대 4장.</p>
+      <div id="styleGrid" class="style-grid"></div>
+      <label class="btn">
+        <input type="file" id="styleInput" accept="image/*" multiple hidden> 이미지 추가
+      </label>
+    </section>
+  </div>
+
+  <!-- ================= 오른쪽 ================= -->
+  <div class="col wide">
+    <div id="empty" class="card empty">왼쪽에서 영상을 올리거나 선택하세요.</div>
+
+    <div id="projectView" hidden>
+      <section class="card">
+        <h2><span class="num">2</span> 옵션 <span id="savedBadge" class="saved" hidden>저장됨</span></h2>
+        <div class="checks" id="optChecks">
+          <label><input type="checkbox" name="cut"> 무음·추임새 컷</label>
+          <label><input type="checkbox" name="cards"> 설명 일러스트</label>
+          <label><input type="checkbox" name="objects"> 로고·아이콘 오버레이</label>
+          <label><input type="checkbox" name="mosaic"> 개인정보 모자이크</label>
+          <label><input type="checkbox" name="face_mosaic"> 얼굴 모자이크</label>
+          <label><input type="checkbox" name="beep"> 음성 개인정보 가리기</label>
+          <label><input type="checkbox" name="subtitles"> 자막 넣기</label>
+          <label><input type="checkbox" name="proofread"> 자막 자동 교정</label>
+          <label><input type="checkbox" name="translate_ko"> 외국어 → 한국어 자막 번역</label>
+        </div>
+        <div class="selects">
+          <label>일러스트 위치
+            <select name="card_mode"><option value="card">중앙 카드</option><option value="full">전체 화면</option></select>
+          </label>
+          <label>Whisper
+            <select name="whisper">
+              <option value="turbo">turbo (빠름·추천)</option>
+              <option value="large-v3">large-v3 (느림)</option>
+              <option value="medium">medium</option>
+              <option value="small">small</option>
+            </select>
+          </label>
+          <label>그림 생성
+            <select name="image_engine">
+              <option value="auto">자동</option>
+              <option value="openai">OpenAI (이미지)</option>
+              <option value="claude">Claude (벡터)</option>
+            </select>
+          </label>
+          <label>속도
+            <select name="speed">
+              <option value="fast">빠름 (1080p·30fps)</option>
+              <option value="balanced">균형 (1080p·원본fps)</option>
+              <option value="best">최고 화질 (원본)</option>
+            </select>
+          </label>
+        </div>
+
+        <details class="fine">
+          <summary>세부 조절</summary>
+          <div class="fine-grid" id="fineForm">
+            <label>자르지 않을 짧은 쉼 <b><span data-show="max_pause"></span>초</b>
+              <input type="range" name="max_pause" min="0.2" max="1.2" step="0.05">
+              <small>이 길이보다 짧은 쉼은 그대로 둡니다. <b>올리면</b> 덜 자르고 자연스럽게, <b>내리면</b> 빠르고 빽빽하게. 바꾸면 [컷 편집] 재실행.</small>
+            </label>
+            <label>긴 쉼에 남길 호흡 <b><span data-show="keep_pause"></span>초</b>
+              <input type="range" name="keep_pause" min="0" max="0.8" step="0.05">
+              <small>긴 침묵을 자를 때 숨 쉴 틈으로 남기는 길이. 0이면 말이 바로 붙어서 숨 막히게 들릴 수 있습니다.</small>
+            </label>
+            <label>설명 이미지 빈도 <b><span data-show="scene_every"></span>초에 최대 1개</b>
+              <input type="range" name="scene_every" min="8" max="90" step="1">
+              <small>Claude가 넣는 설명 이미지의 최대 개수 기준. 숫자가 작을수록 많이 넣습니다(실제로는 필요한 곳에만). [기획] 재실행.</small>
+            </label>
+            <label>카드 뒤 배경 어둡게 <b><span data-show="card_dim"></span></b>
+              <input type="range" name="card_dim" min="0" max="0.8" step="0.05">
+              <small>중앙 카드가 뜰 때 뒤 영상을 얼마나 어둡게 할지. 0이면 그대로, 높을수록 카드가 돋보입니다.</small>
+            </label>
+            <label>자막 크기
+              <select name="sub_size">
+                <option value="0.85">작게</option><option value="1">보통</option>
+                <option value="1.2">크게</option><option value="1.4">아주 크게</option>
+              </select>
+              <small>화면 높이에 비례합니다. 쇼츠(세로 영상)는 자동으로 더 크게.</small>
+            </label>
+            <label>자막 스타일
+              <select name="sub_style"><option value="outline">흰 글씨 + 검은 외곽선</option><option value="box">반투명 검은 상자</option></select>
+              <small>배경이 밝고 복잡하면 '상자'가 더 잘 보입니다.</small>
+            </label>
+            <label>음성 개인정보 처리
+              <select name="pii_audio"><option value="beep">삐 소리</option><option value="mute">무음</option></select>
+              <small>말로 나온 전화번호·주소 등을 가리는 방식.</small>
+            </label>
+            <label>개인정보 스캔 방식
+              <select name="scan_mode"><option value="fast">빠름 (키프레임)</option><option value="precise">정밀 (매초)</option></select>
+              <small>빠름: 영상의 키프레임(보통 1~3초 간격)만 읽어 6배 이상 빠름. 정밀: 1초마다 빠짐없이.</small>
+            </label>
+            <label>음성 언어
+              <select name="language"><option value="ko">한국어</option><option value="auto">자동 (외국어 섞임)</option></select>
+              <small>외국인과 대화하는 영상이면 '자동'이 더 정확합니다. [전사] 재실행.</small>
+            </label>
+            <label class="check"><input type="checkbox" name="loudnorm"> 음량 평준화 (유튜브 권장 -14 LUFS)
+              <small>영상마다 들쭉날쭉한 소리 크기를 유튜브 기준에 맞춥니다.</small>
+            </label>
+            <label class="span2">자주 나오는 용어 (쉼표로 구분)
+              <input type="text" name="vocab" placeholder="예: 복지로, 중위소득, 립밤">
+              <small>음성 인식과 자막 교정이 이 단어를 정확히 씁니다. 사람·제품·지명 이름에 효과적. [전사] 재실행 시 가장 효과적.</small>
+            </label>
+          </div>
+        </details>
+      </section>
+
+      <section class="card">
+        <h2><span class="num">3</span> 실행 <span id="statusPill" class="status">대기</span></h2>
+        <div class="run-row">
+          <button id="runAllBtn" class="btn yellow big">▶ 전체 실행</button>
+          <label class="force"><input type="checkbox" id="forceChk"> 이 단계 강제 재실행(캐시 무시)</label>
+          <button id="cancelBtn" class="btn danger" hidden>■ 중지</button>
+        </div>
+        <div id="steps" class="steps"></div>
+        <p class="hint">단계 버튼은 앞 단계 결과가 있으면 재사용하고, 없으면 자동으로 먼저 실행합니다. <span id="outFormat"></span></p>
+        <pre id="log" class="log"></pre>
+      </section>
+
+      <section class="card">
+        <h2><span class="num">4</span> 다듬기 · 결과</h2>
+        <nav class="tabs">
+          <button data-tab="subs" class="active">자막</button>
+          <button data-tab="scenes">장면</button>
+          <button data-tab="pii">개인정보</button>
+          <button data-tab="result">결과</button>
+        </nav>
+
+        <div id="tab-subs" class="tab">
+          <div class="tab-bar">
+            <span class="muted" id="subSummary"></span>
+            <div>
+              <button id="proofreadBtn" class="btn small">Claude로 교정·번역</button>
+              <button id="rebuildSubsBtn" class="btn small">다시 만들기</button>
+              <button id="saveSubsBtn" class="btn small yellow">자막 저장</button>
+            </div>
+          </div>
+          <div id="subList" class="sub-list"></div>
+        </div>
+
+        <div id="tab-scenes" class="tab" hidden>
+          <div class="tab-bar">
+            <span class="muted" id="sceneSummary"></span>
+            <div>
+              <button id="addSceneBtn" class="btn small">+ 장면 추가</button>
+              <button id="saveScenesBtn" class="btn small yellow">장면 저장</button>
+            </div>
+          </div>
+          <div id="sceneGrid" class="scene-grid"></div>
+        </div>
+
+        <div id="tab-pii" class="tab" hidden>
+          <h3>화면 모자이크</h3>
+          <div id="mosaicList" class="check-list"></div>
+          <h3>음성 가리기</h3>
+          <div id="spokenList" class="check-list"></div>
+          <button id="savePiiBtn" class="btn small yellow">저장</button>
+          <p class="hint">체크를 해제한 항목은 다음 렌더링부터 처리하지 않습니다.</p>
+        </div>
+
+        <div id="tab-result" class="tab" hidden><div id="resultBox"></div></div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<div id="modal" class="modal" hidden>
+  <div class="modal-body card">
+    <button class="modal-close" id="modalClose">×</button>
+    <img id="modalImg" alt="미리보기">
+    <p class="muted" id="modalCaption"></p>
+  </div>
+</div>
+
+<template id="sceneTpl">
+  <article class="scene">
+    <div class="scene-img checker"><img alt=""><span class="no-img">그림 없음</span></div>
+    <div class="scene-body">
+      <div class="row">
+        <span class="sid"></span>
+        <select data-k="kind">
+          <option value="object">로고·아이콘 (투명)</option>
+          <option value="card">설명 일러스트</option>
+        </select>
+        <label class="inline"><input type="checkbox" data-k="enabled"> 사용</label>
+      </div>
+      <div class="row">
+        <label>시작 <input type="number" step="0.1" data-k="start"></label>
+        <label>끝 <input type="number" step="0.1" data-k="end"></label>
+      </div>
+      <div class="row object-only">
+        <label>위치
+          <select data-k="position">
+            <option value="auto">자동 (얼굴 반대쪽)</option>
+            <option value="left">왼쪽</option><option value="right">오른쪽</option>
+            <option value="top">위</option><option value="bottom">아래</option>
+            <option value="top-left">왼쪽 위</option><option value="top-right">오른쪽 위</option>
+            <option value="bottom-left">왼쪽 아래</option><option value="bottom-right">오른쪽 아래</option>
+            <option value="center">가운데</option>
+          </select>
+        </label>
+        <label>크기 <input type="range" min="0.5" max="1.6" step="0.1" data-k="scale"></label>
+      </div>
+      <label>설명할 내용 <textarea rows="2" data-k="idea"></textarea></label>
+      <label>캡션 (짧게, 비워도 됨) <input type="text" maxlength="16" data-k="caption"></label>
+      <details><summary>그림 묘사 (AI에게 전달)</summary><textarea rows="3" data-k="visual"></textarea></details>
+      <div class="context muted"></div>
+      <div class="logo-hint" hidden></div>
+      <div class="row actions">
+        <button class="btn small" data-act="preview">미리보기</button>
+        <button class="btn small" data-act="redraw">다시 그리기</button>
+        <label class="btn small">이미지 교체<input type="file" accept="image/*" hidden data-act="upload"></label>
+        <button class="btn small danger" data-act="delete">삭제</button>
+      </div>
+    </div>
+  </article>
+</template>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

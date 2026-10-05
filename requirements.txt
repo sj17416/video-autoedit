@@ -1,0 +1,12 @@
+anthropic>=1.11
+faster-whisper
+imageio-ffmpeg
+numpy
+pillow
+opencv-python-headless
+rapidocr
+onnxruntime
+resvg_py
+python-dotenv
+flask
+openai

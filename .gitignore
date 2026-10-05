@@ -1,0 +1,36 @@
+# ----- 비밀 정보 (절대 올리지 않음) -----
+.env
+.env.*
+!.env.example
+
+# ----- 사용자 데이터 / 작업 결과 -----
+# 올린 영상 원본과 작업 파일 (수백 MB~GB)
+projects/
+# 사용자가 올린 그림체 참고 이미지 (저작권이 있을 수 있음)
+style_refs/*
+!style_refs/.gitkeep
+# 이 PC의 저장 폴더 경로
+config.json
+logs/
+*.mp4
+*.mov
+*.mkv
+*.srt
+*_작업폴더/
+
+# ----- 자동으로 받는 파일 -----
+# 얼굴 검출 모델 (처음 실행 시 자동 다운로드)
+models/
+
+# ----- 파이썬 / 도구 -----
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.claude/settings.local.json
+
+# ----- OS -----
+Thumbs.db
+Desktop.ini
+.DS_Store
