@@ -40,11 +40,24 @@ def _prompt(scene, has_refs):
             "Absolutely no text, letters, numbers or words anywhere in the image.")
 
 
+_client = None
+
+
+def _get_client():
+    """여러 스레드가 함께 쓰는 클라이언트 하나. 동시에 많이 보내다 요청 한도(429)에 걸리면 기다렸다 재시도한다."""
+    global _client
+    if _client is None:
+        import openai
+        _client = openai.OpenAI(max_retries=6, timeout=300)
+    return _client
+
+
 def generate(scene, refs, quality="medium"):
-    """PNG 바이트 반환. refs: [(media_type, base64)] 그림체 참고 이미지."""
+    """PNG 바이트 반환. refs: [(media_type, base64)] 그림체 참고 이미지.
+    quality: low(빠름) / medium / high — 낮을수록 빨리 나온다."""
     import openai
 
-    client = openai.OpenAI()
+    client = _get_client()
     obj = scene["kind"] == "object"
     common = dict(model=MODEL, prompt=_prompt(scene, bool(refs)), size="1024x1024" if obj else "1536x1024",
                   background="transparent" if obj else "opaque", quality=quality, output_format="png")

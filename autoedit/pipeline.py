@@ -28,6 +28,7 @@ DEFAULTS = {
     "card_mode": "card",   # card(중앙 카드) / full(전체 화면)
     "whisper": "turbo",    # turbo(빠르고 정확) / medium / large-v3 / small
     "image_engine": "auto",  # auto / claude(SVG) / openai(이미지)
+    "image_quality": "medium",  # OpenAI 그림 화질: low(빠름) / medium / high
     "speed": "fast",       # fast(1080p·30fps) / balanced(1080p·원본fps) / best(원본 그대로)
     # 세부 조절
     "language": "ko",      # ko / auto (영어가 섞인 영상)
@@ -329,8 +330,11 @@ class Project:
             targets = [s for s in targets if s["id"] == only]
             for s in targets:
                 s["image"] = None
-        illustrate.make_illustrations(targets, self.scenes_dir, self.size, STYLE_DIR, engine)
-        save_json(self.p("plan.json"), plan)
+        try:
+            illustrate.make_illustrations(targets, self.scenes_dir, self.size, STYLE_DIR, engine,
+                                          self.settings["image_quality"])
+        finally:  # 일부가 실패해도 완성된 그림은 저장 (다음 실행 때 빠진 것만 다시 그림)
+            save_json(self.p("plan.json"), plan)
 
     def scan(self):
         self.ensure("cut")
@@ -471,19 +475,24 @@ class Project:
         self.ensure("cut")
         st = self.settings
 
-        def ai_work():
+        self.subtitles()  # 자막 파일을 먼저 만들어 둔다 (아래 작업들이 동시에 만들려고 하지 않게)
+
+        def subtitle_work():  # 자막 교정·번역 (Claude)
             if llm.available() and ((st["proofread"] and not self.subtitles()["proofread"]) or self.needs_translation()):
                 self.proofread()
+
+        def visual_work():  # 장면 기획 → 그림 (Claude / OpenAI) — 자막 작업을 기다리지 않음
             if self.kinds:
                 self.ensure("plan")
                 self.ensure("illustrate")
 
-        def scan_work():
+        def scan_work():  # 개인정보 OCR (CPU)
             if st["mosaic"]:
                 self.ensure("scan")
 
-        with ThreadPoolExecutor(2) as ex:
-            futures = [ex.submit(ai_work), ex.submit(scan_work)]
+        # 서로 결과를 쓰지 않는 세 작업을 동시에 진행
+        with ThreadPoolExecutor(3) as ex:
+            futures = [ex.submit(subtitle_work), ex.submit(visual_work), ex.submit(scan_work)]
             for f in futures:
                 f.result()  # 한쪽에서 오류가 나면 여기서 다시 발생
         self.render()

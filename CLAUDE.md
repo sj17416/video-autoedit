@@ -46,6 +46,9 @@ All UI text and user-facing messages are **Korean**.
   Batched mode combined with the filler prompt hallucinates "음..." loops, so don't use it.
 - Keyframe-only OCR scanning is about 6x faster than full decoding. d3d11va hwaccel decoding is *slower* here.
 - `fast` preset renders at 1080p30 and 0.7x the video's duration for 4K60 sources. h264_amf is only used for outputs above 1080p.
+- Images: every missing scene is drawn concurrently, up to `illustrate.MAX_PARALLEL` = 10, sharing one OpenAI client with `max_retries=6` so 429s back off.
+  In `run_all`, subtitle proofread/translate, plan→illustrate, and OCR scan run as three parallel jobs.
+  `image_quality` (low/medium/high) trades speed for detail.
 
 ## Rules
 - **Never test inside the user's `projects/<id>`.** Copy what you need into a scratch directory, or create a test
