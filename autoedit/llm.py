@@ -230,9 +230,15 @@ already correct unchanged. Lines spoken in another language (e.g. English) stay 
 obvious recognition errors there, never translate. Return exactly one output line per input line, in the same order,
 without numbers."""
 
+# 줄마다 번호(id)를 붙여 돌려받는다 → 줄이 합쳐지거나 빠져도 번호로 정확히 맞출 수 있다
 PROOF_SCHEMA = {
     "type": "object",
-    "properties": {"lines": {"type": "array", "items": {"type": "string"}}},
+    "properties": {"lines": {"type": "array", "items": {
+        "type": "object",
+        "properties": {"id": {"type": "integer"}, "text": {"type": "string"}},
+        "required": ["id", "text"],
+        "additionalProperties": False,
+    }}},
     "required": ["lines"],
     "additionalProperties": False,
 }
@@ -249,15 +255,34 @@ TRANSLATE_SYSTEM = """You prepare Korean subtitles for a YouTube video from spee
 - Lines already in Korean: only fix misrecognized words, spelling, spacing (띄어쓰기) and number formatting
   (e.g. "이십만 원" → "20만 원"). Do not paraphrase them.
 - Keep names, brands and the glossary terms correct. Never merge or split lines.
-Return exactly one output line per input line, in the same order, without numbers."""
+Return exactly one object per input line, with the same id as the input line."""
+
+ID_RULE = ("\n\nOutput format: one object {id, text} for EVERY input id, even if the text is unchanged. "
+           "Never merge two ids into one or skip an id.")
 
 
 def proofread(texts, glossary="", translate=False):
-    """자막 교정. translate=True면 한국어가 아닌 줄을 자연스러운 한국어 자막으로 번역."""
-    body = (f"Glossary: {glossary}\n\n" if glossary.strip() else "") + \
-        f"{len(texts)} lines:\n" + "\n".join(f"{i}: {t}" for i, t in enumerate(texts))
-    system = TRANSLATE_SYSTEM if translate else PROOF_SYSTEM
-    out = ask(body, system=system, schema=PROOF_SCHEMA, effort="medium")["lines"]
-    if len(out) != len(texts):
-        raise UserError(f"자막 교정 결과의 줄 수가 맞지 않아 적용하지 않았습니다 ({len(texts)} → {len(out)}).")
-    return [o.strip() or t for o, t in zip(out, texts)]
+    """자막 교정. translate=True면 한국어가 아닌 줄을 자연스러운 한국어 자막으로 번역.
+
+    줄 번호로 결과를 맞추고, 빠진 줄만 앞뒤 문맥과 함께 한 번 더 요청한다.
+    그래도 빠진 줄은 원래 문장을 그대로 둔다 (작업 전체를 멈추지 않음).
+    """
+    system = (TRANSLATE_SYSTEM if translate else PROOF_SYSTEM) + ID_RULE
+    head = f"Glossary: {glossary}\n\n" if glossary.strip() else ""
+
+    def request(ids, context_ids=()):
+        ctx = [i for i in context_ids if i not in ids]
+        body = head
+        if ctx:  # 문맥용 줄 (수정 대상 아님)
+            body += "Context only (do not return these):\n" + "\n".join(f"- {texts[i]}" for i in ctx) + "\n\n"
+        body += f"{len(ids)} lines:\n" + "\n".join(f"{i}: {texts[i]}" for i in ids)
+        out = ask(body, system=system, schema=PROOF_SCHEMA, effort="medium")["lines"]
+        return {o["id"]: o["text"].strip() for o in out if o["id"] in ids and o["text"].strip()}
+
+    result = request(list(range(len(texts))))
+    missing = [i for i in range(len(texts)) if i not in result]
+    if missing:
+        print(f"  번호가 빠진 {len(missing)}줄만 다시 요청합니다")
+        around = sorted({j for i in missing for j in range(max(0, i - 2), min(len(texts), i + 3))})
+        result.update(request(missing, around))
+    return [result.get(i, t) for i, t in enumerate(texts)]
