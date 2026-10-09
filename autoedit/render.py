@@ -117,9 +117,9 @@ def ease_out(x):
     return 1 - (1 - x) ** 3
 
 
-ANCHORS = {"left": (0.2, 0.45), "right": (0.8, 0.45), "top": (0.5, 0.2), "bottom": (0.5, 0.78),
-           "top-left": (0.2, 0.25), "top-right": (0.8, 0.25), "bottom-left": (0.2, 0.72),
-           "bottom-right": (0.8, 0.72), "center": (0.5, 0.45)}
+ANCHORS = {"left": (0.12, 0.45), "right": (0.88, 0.45), "top": (0.5, 0.2), "bottom": (0.5, 0.78),
+           "top-left": (0.12, 0.2), "top-right": (0.88, 0.2), "bottom-left": (0.12, 0.7),
+           "bottom-right": (0.88, 0.7), "center": (0.5, 0.45)}
 _face = None
 
 
@@ -144,22 +144,59 @@ def _face_detector():
     return _face
 
 
-def auto_position(frame):
-    """얼굴이 없는 쪽으로 배치."""
+def detect_faces(frame, width=960):
+    """얼굴 상자 목록 (frame 좌표)."""
     H, W = frame.shape[:2]
-    small = cv2.resize(frame, (640, int(640 * H / W)))
-    faces = []
     det = _face_detector()
-    if det:
-        det.setInputSize((small.shape[1], small.shape[0]))
-        _, found = det.detect(small)
-        faces = [] if found is None else [f[:4] for f in found]
-    big = max(faces, key=lambda f: f[2] * f[3]) if len(faces) else None
-    if W < H:  # 세로 영상(쇼츠)은 위/아래
-        return "bottom" if big is not None and big[1] < small.shape[0] * 0.4 else "top"
-    if big is None:
-        return "right"
-    return "right" if (big[0] + big[2] / 2) / small.shape[1] < 0.5 else "left"
+    if not det:
+        return []
+    sw = min(width, W)
+    small = cv2.resize(frame, (sw, int(sw * H / W)))
+    det.setInputSize((small.shape[1], small.shape[0]))
+    _, found = det.detect(small)
+    k = W / sw
+    return [] if found is None else [tuple(float(v) * k for v in f[:4]) for f in found]
+
+
+def person_boxes(frame):
+    """얼굴로 사람 전체(머리~몸) 영역을 어림잡는다: 얼굴 폭의 약 3.4배, 머리 위부터 화면 아래까지."""
+    H, W = frame.shape[:2]
+    out = []
+    for x, y, w, h in detect_faces(frame):
+        cx = x + w / 2
+        out.append((cx - w * 1.7, y - h * 0.6, cx + w * 1.7, H))
+    return out
+
+
+def _overlap(a, b):
+    w = min(a[2], b[2]) - max(a[0], b[0])
+    h = min(a[3], b[3]) - max(a[1], b[1])
+    return max(0.0, w) * max(0.0, h)
+
+
+def place_object(frame, sprite_wh, top, bottom):
+    """사람(얼굴+몸)과 가장 덜 겹치는 자리를 고른다. 비슷하면 위쪽 구석을 우선 (시선을 덜 가림)."""
+    H, W = frame.shape[:2]
+    sw, sh = sprite_wh
+    people = person_boxes(frame)
+    order = ["top-right", "top-left", "right", "left", "bottom-right", "bottom-left", "top"] if W >= H else \
+        ["top", "bottom", "top-right", "top-left"]
+    best, best_cost = order[0], None
+    for i, name in enumerate(order):
+        cx, cy = anchor_center(name, W, H, sw, sh, top, bottom)
+        rect = (cx - sw / 2, cy - sh / 2, cx + sw / 2, cy + sh / 2)
+        cost = sum(_overlap(rect, p) for p in people) / (sw * sh) + i * 0.02  # 겹침 비율 + 선호 순서
+        if best_cost is None or cost < best_cost:
+            best, best_cost = name, cost
+    return best
+
+
+def anchor_center(name, W, H, sw, sh, top, bottom):
+    ax, ay = ANCHORS.get(name, ANCHORS["top-right"])
+    margin = min(W, H) * 0.04
+    cx = min(max(ax * W, sw / 2 + margin), W - sw / 2 - margin)
+    cy = min(max(ay * H, sh / 2 + top), bottom - sh / 2)
+    return cx, cy
 
 
 def cover(img, size):
@@ -174,7 +211,7 @@ def cover(img, size):
 
 
 class SceneOverlay:
-    def __init__(self, scenes, scenes_dir, size, card_dim=0.35, bottom_limit=None, card_mode="card"):
+    def __init__(self, scenes, scenes_dir, size, card_dim=0.35, bottom_limit=None, card_mode="card", icon_size=0.30):
         """bottom_limit: 이 y 아래(자막 영역)로는 그림이 내려오지 않게 한다.
         card_mode: card(중앙 카드) / full(전체 화면)."""
         self.size, self.dim, self.card_mode = size, card_dim, card_mode
@@ -196,7 +233,7 @@ class SceneOverlay:
                 ys, xs = np.nonzero(img[:, :, 3] > 8)
                 if len(xs):
                     img = img[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
-                box = min(W, H) * (0.62 if W < H else 0.42) * s.get("scale", 1.0)
+                box = min(W, H) * (icon_size * 1.45 if W < H else icon_size) * s.get("scale", 1.0)
                 k = box / max(img.shape[:2])
                 sprite = cv2.resize(img, (max(1, int(img.shape[1] * k)), max(1, int(img.shape[0] * k))),
                                     interpolation=cv2.INTER_AREA)
@@ -227,13 +264,11 @@ class SceneOverlay:
             scale = (0.9 + 0.1 * ease_out(min(1.0, el / 0.35))) * (1 + ZOOM * 0.5 * el / max(it["e"] - it["s"], 1e-6))
             cx, cy = W / 2, min(H / 2, self.bottom - it["sprite"].shape[0] * 0.46)
         else:
-            if it["pos"] == "auto":
-                it["pos"] = auto_position(frame)
-            ax, ay = ANCHORS.get(it["pos"], ANCHORS["right"])
-            scale = 0.55 + 0.45 * ease_out_back(min(1.0, el / 0.4))  # 톡 튀어나오는 효과
             sh, sw = it["sprite"].shape[:2]
-            cx = min(max(ax * W, sw / 2 + W * 0.03), W - sw / 2 - W * 0.03)
-            cy = min(max(ay * H, sh / 2 + self.top), self.bottom - sh / 2)
+            if it["pos"] == "auto":  # 장면이 처음 나오는 프레임에서 사람을 피할 자리를 정한다
+                it["pos"] = place_object(frame, (sw, sh), self.top, self.bottom)
+            scale = 0.55 + 0.45 * ease_out_back(min(1.0, el / 0.4))  # 톡 튀어나오는 효과
+            cx, cy = anchor_center(it["pos"], W, H, sw, sh, self.top, self.bottom)
             cy += np.sin(2 * np.pi * el / 2.6) * H * 0.006  # 살짝 둥실거림
         sp = it["sprite"]
         if abs(scale - 1) > 1e-3:
@@ -294,15 +329,20 @@ class MosaicBoxes:
 
 def render(src, meta, timeline, audio, out_path, work, *, size=None, speed="fast", scenes=(), scenes_dir=None,
            pii_dets=(), scan_dt=1.0, face_mosaic=False, cues=(), sub_style="outline", sub_scale=1.0,
-           card_dim=0.35, card_mode="card", loudnorm=True):
+           card_dim=0.35, card_mode="card", loudnorm=True, icon_size=0.30, effects=(), sfx=True):
+    from . import effects as fxmod
     size = size or (meta["width"], meta["height"])
     fps = timeline.fps
     wav = work / "edited_audio.wav"
-    write_wav(wav, cut_audio(audio, timeline))
+    edited = cut_audio(audio, timeline)
+    if effects and sfx:
+        edited = fxmod.mix_sfx(edited, effects)  # 예능 효과음
+    write_wav(wav, edited)
 
     from .subtitles import SubtitleOverlay
     subs = SubtitleOverlay(cues, size, sub_style, sub_scale) if cues else None
-    overlay = SceneOverlay(scenes, scenes_dir, size, card_dim, subs.top if subs else None, card_mode)
+    overlay = SceneOverlay(scenes, scenes_dir, size, card_dim, subs.top if subs else None, card_mode, icon_size)
+    fx = fxmod.EffectsOverlay(effects, size) if effects else None
     mosaic = MosaicBoxes(pii_dets, scan_dt, size, scale=size[0] / meta["width"])
     faces = FaceMosaic(size) if face_mosaic else None
     # 렌더링이 끝나기 전까지는 임시 파일에 쓴다 → 실패/중지해도 이전 결과물이 보존됨
@@ -323,7 +363,11 @@ def render(src, meta, timeline, audio, out_path, work, *, size=None, speed="fast
                     pixelate(frame, b)
             if faces:
                 frame = faces.apply(frame)
+            if fx:
+                frame = fx.apply_base(frame, t_new)  # 줌 · 흑백 (영상 자체)
             frame = overlay.apply(frame, t_new)
+            if fx:
+                frame = fx.apply_top(frame, t_new)  # 예능 강조 자막
             if subs:
                 frame = subs.apply(frame, t_new)
             writer.write(frame)

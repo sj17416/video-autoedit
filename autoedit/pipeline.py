@@ -11,7 +11,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from . import cutplan, illustrate, imagegen, llm, media, privacy, render, subtitles, transcribe
+from . import cutplan, effects, illustrate, imagegen, llm, media, privacy, render, subtitles, transcribe
 
 ROOT = Path(__file__).resolve().parent.parent
 STYLE_DIR = ROOT / "style_refs"
@@ -26,7 +26,12 @@ DEFAULTS = {
     "face_mosaic": False,  # 모든 얼굴 모자이크
     "beep": True,          # 말로 나온 개인정보 가리기
     "card_mode": "card",   # card(중앙 카드) / full(전체 화면)
-    "whisper": "turbo",    # turbo(빠르고 정확) / medium / large-v3 / small
+    "stt_engine": "auto",  # auto(OpenAI 키가 있으면 OpenAI) / openai / local(내 PC의 Whisper)
+    "whisper": "turbo",    # 로컬 전사 모델: turbo(빠르고 정확) / medium / large-v3 / small
+    "sub_tone": "mz",      # 자막 말투: mz(요즘 MZ 유튜브 말투) / normal(그대로 다듬기만)
+    "effects": True,       # 예능 효과 (흑백요리사 스타일 강조 자막 · 줌 · 흑백 연출)
+    "sfx": True,           # 예능 효과음 (뿅 · 휙 · 둥)
+    "icon_size": 0.30,     # 아이콘 크기 (화면 짧은 변 대비)
     "image_engine": "auto",  # auto / claude(SVG) / openai(이미지)
     "image_quality": "medium",  # OpenAI 그림 화질: low(빠름) / medium / high
     "speed": "fast",       # fast(1080p·30fps) / balanced(1080p·원본fps) / best(원본 그대로)
@@ -51,9 +56,10 @@ STEPS = ["transcribe", "cut", "plan", "illustrate", "scan", "render"]
 STEP_NAMES = {"transcribe": "음성 인식", "cut": "컷 편집", "plan": "장면 기획", "illustrate": "이미지 생성",
               "scan": "개인정보 스캔", "render": "최종 렌더링"}
 # 단계를 다시 하면 함께 지워야 하는 결과물
-RESETS = {"transcribe": ["transcript.json", "cutplan.json", "subtitles.json", "plan.json", "ocr.json",
-                         "pii_flagged.json", "scenes"],
-          "cut": ["cutplan.json", "subtitles.json", "plan.json", "ocr.json", "pii_flagged.json", "scenes"],
+# (전사·컷을 다시 해도 장면과 그림은 지우지 않고, 새 컷에 맞춰 시간만 옮긴다 → 그림 비용 절약)
+RESETS = {"transcribe": ["transcript.json", "cutplan.json", "subtitles.json", "effects.json", "ocr.json",
+                         "pii_flagged.json"],
+          "cut": ["cutplan.json", "subtitles.json", "effects.json", "ocr.json", "pii_flagged.json"],
           "plan": ["plan.json", "scenes"], "illustrate": ["scenes"],
           "scan": ["ocr.json", "pii_flagged.json"], "render": []}
 
@@ -200,7 +206,38 @@ class Project:
         self._meta = None
         print("[캐시 삭제] 작업 결과를 모두 지웠습니다. 다음 실행은 처음부터 진행합니다.")
 
+    def _stash_scene_times(self):
+        """장면 시간을 원본 영상 기준 시각으로 기록해 둔다 (컷이 바뀌어도 같은 장면 위치를 찾을 수 있게)."""
+        plan = load_json(self.p("plan.json"))
+        if not plan or not self.p("cutplan.json").exists():
+            return
+        tl = self.timeline
+        for s in plan["scenes"]:
+            if "orig_start" not in s:
+                s["orig_start"], s["orig_end"] = round(tl.to_orig(s["start"]), 3), round(tl.to_orig(s["end"]), 3)
+        save_json(self.p("plan.json"), plan)
+
+    def _remap_scene_times(self):
+        """새 컷에 맞춰 장면 시간을 옮긴다. 장면 구간이 통째로 잘려 나갔으면 끈다."""
+        plan = load_json(self.p("plan.json"))
+        if not plan:
+            return
+        tl, moved = self.timeline, 0
+        for s in plan["scenes"]:
+            if "orig_start" not in s:
+                continue
+            start, end = tl.to_new(s.pop("orig_start")), tl.to_new(s.pop("orig_end"))
+            if end - start < 0.8:
+                s["enabled"] = False
+            s["start"], s["end"] = round(start, 2), round(max(end, start + 0.8), 2)
+            moved += 1
+        save_json(self.p("plan.json"), plan)
+        if moved:
+            print(f"  기존 장면 {moved}개를 새 컷에 맞춰 옮겼습니다 (그림은 그대로 사용)")
+
     def reset(self, step):
+        if step in ("transcribe", "cut"):
+            self._stash_scene_times()
         for name in RESETS[step]:
             target = self.p(name)
             if target.is_dir():
@@ -230,13 +267,20 @@ class Project:
         wav16 = self.p("audio16k.wav")
         if not wav16.exists():
             media.extract_wav16k(self.src, wav16)
-        data = transcribe.transcribe(wav16, self.p("transcript.json"), self.settings["whisper"],
-                                     self.settings["vocab"], self.settings["language"])
+        engine = self.settings["stt_engine"]
+        if engine == "auto":
+            engine = "openai" if imagegen.available() else "local"
+        if engine == "openai":
+            data = transcribe.transcribe_openai(wav16, self.p("transcript.json"))
+        else:
+            data = transcribe.transcribe(wav16, self.p("transcript.json"), self.settings["whisper"],
+                                         self.settings["vocab"], self.settings["language"])
         print(f"  문장 {len(data['segments'])}개")
 
     def cut(self):
         self.ensure("transcribe")
         print("[컷 편집] 무음 + 필러워드")
+        self._stash_scene_times()  # 기존 컷이 있으면 장면 위치를 원본 시각으로 기록
         a16, sr16 = media.read_wav_mono(self.p("audio16k.wav"))
         dur = self.meta["duration"]
         if self.settings["cut"]:
@@ -247,6 +291,8 @@ class Project:
             plan = {"keep": [[0.0, dur]], "fillers": [], "rescued": 0, "duration": dur, "kept_duration": dur}
         save_json(self.p("cutplan.json"), plan)
         self.p("subtitles.json").unlink(missing_ok=True)  # 컷이 바뀌면 자막 시간도 다시
+        self.p("effects.json").unlink(missing_ok=True)
+        self._remap_scene_times()
         tl = self.timeline
         print(f"  필러워드 {len(plan['fillers'])}개 제거, 컷 {max(0, len(tl.segs) - 1)}곳, "
               f"{media.fmt_time(self.meta['duration'])} → {media.fmt_time(tl.total)} "
@@ -361,7 +407,7 @@ class Project:
             save_json(path, {"proofread": False, "cues": cues})
         return load_json(path)
 
-    def save_subtitles(self, cues, proofread=None, translated=None):
+    def save_subtitles(self, cues, proofread=None, translated=None, tone=None):
         data = self.subtitles()
         clean = []
         for c in sorted(cues, key=lambda c: float(c["start"])):
@@ -377,6 +423,8 @@ class Project:
             data["proofread"] = proofread
         if translated is not None:
             data["translated"] = translated
+        if tone is not None:
+            data["tone"] = tone
         save_json(self.p("subtitles.json"), data)
 
     def rebuild_subtitles(self):
@@ -384,42 +432,89 @@ class Project:
         print(f"[자막] 음성 인식 결과로 다시 만들었습니다: {len(self.subtitles()['cues'])}줄")
 
     def proofread(self):
-        translate = self.settings["translate_ko"]
-        print("[자막 " + ("번역·교정] 외국어 → 한국어" if translate else "교정] 맞춤법 · 인식 오류 · 숫자 표기") + " (Claude)")
+        tone = self.settings["sub_tone"]
+        translate = self.settings["translate_ko"] or tone == "mz"
+        label = "MZ 말투로 바꾸기" if tone == "mz" else "번역·교정] 외국어 → 한국어" if translate else "교정] 맞춤법 · 인식 오류"
+        print(f"[자막 {label}" + ("]" if tone == "mz" else "") + " (Claude)")
         if not llm.available():
             print("  ※ API 키가 없어 건너뜀")
             return
         data = self.subtitles()
-        texts = [c["text"] for c in data["cues"]]
+        # 말투를 다시 입힐 때는 원문에서 시작한다 (이미 바꾼 문장을 또 바꾸지 않게)
+        texts = [c.get("original") or c["text"] for c in data["cues"]] if data.get("tone") != tone else \
+            [c["text"] for c in data["cues"]]
         fixed = []
         for i in range(0, len(texts), 150):  # 긴 영상은 나눠서 (앞뒤 문맥은 150줄 단위로 유지)
-            fixed += llm.proofread(texts[i:i + 150], self.settings["vocab"], translate)
+            fixed += llm.proofread(texts[i:i + 150], self.settings["vocab"], translate, tone)
         if translate:  # 번역 후에도 외국어로 남은 줄은 앞뒤 문맥과 함께 한 번 더 번역
             left = [i for i, t in enumerate(fixed) if is_foreign(t)]
             if left:
                 print(f"  외국어로 남은 {len(left)}줄을 다시 번역합니다")
                 ctx = sorted({j for i in left for j in range(max(0, i - 2), min(len(fixed), i + 3))})
-                again = llm.proofread([fixed[j] for j in ctx], self.settings["vocab"], True)
+                again = llm.proofread([fixed[j] for j in ctx], self.settings["vocab"], True, tone)
                 for j, t in zip(ctx, again):
                     if j in left:
                         fixed[j] = t
         changed = [(a, b) for a, b in zip(texts, fixed) if a != b]
-        for c, t, orig in zip(data["cues"], fixed, texts):
+        for c, t, src in zip(data["cues"], fixed, texts):
             c["text"] = t
-            if t != orig:
-                c["original"] = c.get("original") or orig  # 원문은 따로 보관 (자막 탭에서 비교용)
-        self.save_subtitles(data["cues"], proofread=True, translated=translate or None)
+            if t != src:
+                c["original"] = c.get("original") or src  # 원문은 따로 보관 (자막 탭에서 비교용)
+        self.save_subtitles(data["cues"], proofread=True, translated=translate or None, tone=tone)
         still = sum(is_foreign(t) for t in fixed)
         print(f"  {len(texts)}줄 중 {len(changed)}줄 {'번역·' if translate else ''}수정"
               + (f" (외국어로 남은 줄 {still}개 — 자막 탭에서 직접 고쳐 주세요)" if translate and still else ""))
         for a, b in changed[:20]:
             print(f"  · {a}  →  {b}")
 
+    # ------------------------------------------------------------ 예능 효과
+    def effects_plan(self):
+        """자막(최종 말투)을 보고 Claude가 예능 효과 위치를 고른다 → effects.json."""
+        print("[예능 효과] 강조 자막 · 줌 · 흑백 연출 위치 고르기 (Claude)")
+        if not llm.available():
+            print("  ※ API 키가 없어 건너뜀")
+            return
+        total = self.timeline.total
+        raw = llm.plan_effects(self.subtitles()["cues"], total)
+        plan = load_json(self.p("plan.json"), {"scenes": []})
+        cards = [(s["start"], s["end"]) for s in plan["scenes"]
+                 if s["kind"] == "card" and s.get("enabled", True) and "card" in self.kinds]
+        out, last_end = [], -10.0
+        for e in sorted(raw, key=lambda e: e["start"]):
+            start = max(0.0, min(e["start"], total - 0.8))
+            longest = 3.0 if e["type"] == "dramatic" else 2.5
+            end = min(total, max(e["end"], start + 0.8), start + longest)
+            if start < last_end + 1.0 or e["type"] not in effects.KINDS:
+                continue
+            if e["type"] in ("zoom", "dramatic") and any(start < ce and end > cs for cs, ce in cards):
+                continue  # 설명 카드가 떠 있는 동안 화면을 줌·흑백으로 바꾸면 카드와 겹쳐 어색함
+            out.append({"start": round(start, 2), "end": round(end, 2), "type": e["type"],
+                        "text": e["text"].strip(), "enabled": True})
+            last_end = end
+        save_json(self.p("effects.json"), out)
+        names = {"pop": "강조", "question": "물음표", "dramatic": "흑백 연출", "zoom": "줌"}
+        for e in out:
+            print(f"  {media.fmt_time(e['start'])} {names[e['type']]}" + (f": {e['text']}" if e["text"] else ""))
+
+    def effects(self):
+        return load_json(self.p("effects.json"), [])
+
+    def save_effects(self, items):
+        clean = [{"start": round(float(e["start"]), 2), "end": round(float(e["end"]), 2), "type": e["type"],
+                  "text": str(e.get("text", "")).strip(), "enabled": bool(e.get("enabled", True))}
+                 for e in items if e.get("type") in effects.KINDS]
+        save_json(self.p("effects.json"), sorted(clean, key=lambda e: e["start"]))
+
     def needs_translation(self):
         """번역 설정이 켜져 있는데 아직 번역 안 된 외국어 자막이 남아 있는지."""
-        if not self.settings["translate_ko"] or not self.done("cut"):
+        if not self.done("cut"):
             return False
         data = self.subtitles()
+        if llm.available() and self.settings["sub_tone"] != data.get("tone", "normal") and \
+                (self.settings["sub_tone"] == "mz" or data.get("tone") == "mz"):
+            return True  # 말투 설정이 바뀌었으면 다시 입힌다
+        if not self.settings["translate_ko"]:
+            return False
         return not data.get("translated") and any(is_foreign(c["text"]) for c in data["cues"])
 
     def pii_settings(self):
@@ -451,6 +546,8 @@ class Project:
         if self.needs_translation() and llm.available():  # 안전장치: 영어 자막이 남은 채로 렌더링되지 않게
             print("[자막] 아직 번역되지 않은 외국어 자막이 있어 먼저 번역합니다")
             self.proofread()
+        if self.settings["effects"] and llm.available() and not self.p("effects.json").exists():
+            self.effects_plan()
         print("[최종 렌더링]")
         st = self.settings
         plan = load_json(self.p("plan.json"), {"scenes": [], "spoken_pii": []})
@@ -464,7 +561,8 @@ class Project:
                       scenes=self.active_scenes(plan), scenes_dir=self.scenes_dir,
                       pii_dets=self.mosaic_detections(), scan_dt=self._ocr()["dt"], face_mosaic=st["face_mosaic"],
                       cues=cues if st["subtitles"] else [], sub_style=st["sub_style"], sub_scale=st["sub_size"],
-                      card_dim=st["card_dim"], card_mode=st["card_mode"], loudnorm=st["loudnorm"])
+                      card_dim=st["card_dim"], card_mode=st["card_mode"], loudnorm=st["loudnorm"],
+                      icon_size=st["icon_size"], effects=self.effects() if st["effects"] else [], sfx=st["sfx"])
         subtitles.write_srt(cues, self.out.with_suffix(".srt"))
         print(f"  영상: {self.out}")
         print(f"  자막: {self.out.with_suffix('.srt')}")
@@ -477,9 +575,12 @@ class Project:
 
         self.subtitles()  # 자막 파일을 먼저 만들어 둔다 (아래 작업들이 동시에 만들려고 하지 않게)
 
-        def subtitle_work():  # 자막 교정·번역 (Claude)
+        def subtitle_work():  # 자막 교정·번역·말투 (Claude) → 그 자막을 보고 예능 효과 고르기
             if llm.available() and ((st["proofread"] and not self.subtitles()["proofread"]) or self.needs_translation()):
                 self.proofread()
+                self.p("effects.json").unlink(missing_ok=True)  # 자막이 바뀌었으니 효과도 새 자막 기준으로
+            if st["effects"] and llm.available() and not self.p("effects.json").exists():
+                self.effects_plan()
 
         def visual_work():  # 장면 기획 → 그림 (Claude / OpenAI) — 자막 작업을 기다리지 않음
             if self.kinds:
@@ -522,8 +623,13 @@ class Project:
             subs = subtitles.SubtitleOverlay(self.subtitles()["cues"], self.size, self.settings["sub_style"],
                                              self.settings["sub_size"])
         overlay = render.SceneOverlay([{**s, "enabled": True}], self.scenes_dir, self.size, self.settings["card_dim"],
-                                      subs.top if subs else None, self.settings["card_mode"])
+                                      subs.top if subs else None, self.settings["card_mode"], self.settings["icon_size"])
+        fx = effects.EffectsOverlay(self.effects(), self.size) if self.settings["effects"] else None
+        if fx:
+            frame = fx.apply_base(frame, t_new)
         frame = overlay.apply(frame, t_new)
+        if fx:
+            frame = fx.apply_top(frame, t_new)
         if subs:
             frame = subs.apply(frame, t_new)
         return cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])[1].tobytes()
@@ -544,7 +650,8 @@ class Project:
                 "mosaic": [{"text": t, "kind": k, "enabled": t not in off} for t, k in flagged.items()],
                 "output": self.out.name if self.out.exists() else None,
                 "output_path": str(self.out),
-                "subtitles": self.subtitles() if cut else None}
+                "subtitles": self.subtitles() if cut else None,
+                "effects": self.effects()}
         if cut:
             tl = self.timeline
             info["cut"] = {"fillers": len(cut["fillers"]), "cuts": max(0, len(tl.segs) - 1),

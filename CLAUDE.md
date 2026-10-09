@@ -50,6 +50,20 @@ All UI text and user-facing messages are **Korean**.
   In `run_all`, subtitle proofread/translate, plan→illustrate, and OCR scan run as three parallel jobs.
   `image_quality` (low/medium/high) trades speed for detail.
 
+## Transcription engines (tested on a Korean+English conversation, 2026-10-09)
+- `gpt-4o-transcribe-diarize` (`diarized_json`) is the OpenAI engine in use. Its text is accurate in both languages, and it returns per-utterance
+  start/end plus filler-only segments ("Hmm", "Uh"). Word times are interpolated by character count inside each utterance.
+  In-sentence fillers are marked `cuttable: False` so we never cut real speech. A 2-minute video takes about 50 s.
+- `whisper-1`: whole-file mode dropped the English part (3–30 s) entirely. Per-chunk mode misdetected Malay and hallucinated "um um um". Don't use it.
+- `gpt-transcribe`: no `verbose_json`, so no timestamps. Not usable for cutting.
+- Re-running transcribe or cut keeps `plan.json`/scenes. `_stash_scene_times`/`_remap_scene_times` move the scenes onto the new timeline through original-video time.
+
+## Variety-show effects (`autoedit/effects.py`)
+- Claude (`llm.plan_effects`) picks `pop` / `question` / `dramatic` (흑백요리사-style B&W with a band caption) / `zoom` moments from the
+  final subtitles. They are saved to `effects.json` and can be edited in the 효과 tab. SFX are synthesized in numpy (`mix_sfx`).
+- Layer order per frame: mosaic → face mosaic → effects base (zoom/B&W) → icons/cards → effect captions → subtitles.
+- Zoom/dramatic effects are skipped while a center card is shown.
+
 ## Rules
 - **Never test inside the user's `projects/<id>`.** Copy what you need into a scratch directory, or create a test
   project and delete it afterwards. Check the `project.json` name before deleting anything.

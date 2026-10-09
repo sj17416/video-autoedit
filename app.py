@@ -199,6 +199,8 @@ def run_step(pid, step):
     elif step == "redraw":
         sid = body["scene"]
         fn, label = (lambda: p.illustrate(only=sid)), f"장면 {sid} 다시 그리기"
+    elif step == "effects":
+        fn, label = p.effects_plan, "예능 효과 고르기"
     elif step == "clear_cache":
         fn, label = p.clear_cache, "캐시 삭제"
     elif step in STEPS:
@@ -222,6 +224,12 @@ def run_step(pid, step):
 @app.post("/api/job/cancel")
 def cancel_job():
     jobctl.request()
+    return jsonify(ok=True)
+
+
+@app.post("/api/projects/<pid>/effects")
+def save_effects(pid):
+    project(pid).save_effects(request.json["effects"])
     return jsonify(ok=True)
 
 

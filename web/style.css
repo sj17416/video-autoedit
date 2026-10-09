@@ -132,6 +132,8 @@ input[type=range] { width: 100%; accent-color: var(--ink); }
 .sub-row .idx { font-size: 12px; color: var(--muted); text-align: right; }
 .sub-row input { padding: 4px 8px; border-width: 2px; border-radius: 8px; }
 .sub-row input[type=number] { font-size: 13px; }
+.fx-row { grid-template-columns: 24px 82px 82px 110px 1fr 30px; }
+.fx-row select { padding: 3px 6px; border-width: 2px; border-radius: 8px; font-size: 13px; }
 .sub-row .orig { grid-column: 4 / 5; font-size: 12px; color: var(--muted); margin: -3px 0 4px 4px; }
 .sub-row button { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 18px; }
 .sub-row button:hover { color: var(--danger); }

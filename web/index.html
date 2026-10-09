@@ -79,17 +79,24 @@
           <label><input type="checkbox" name="subtitles"> 자막 넣기</label>
           <label><input type="checkbox" name="proofread"> 자막 자동 교정</label>
           <label><input type="checkbox" name="translate_ko"> 외국어 → 한국어 자막 번역</label>
+          <label><input type="checkbox" name="effects"> 예능 효과 (흑백요리사 스타일)</label>
+          <label><input type="checkbox" name="sfx"> 효과음</label>
         </div>
         <div class="selects">
           <label>일러스트 위치
             <select name="card_mode"><option value="card">중앙 카드</option><option value="full">전체 화면</option></select>
           </label>
-          <label>Whisper
-            <select name="whisper">
-              <option value="turbo">turbo (빠름·추천)</option>
-              <option value="large-v3">large-v3 (느림)</option>
-              <option value="medium">medium</option>
-              <option value="small">small</option>
+          <label>전사
+            <select name="stt_engine">
+              <option value="auto">자동 (OpenAI 키 있으면 OpenAI)</option>
+              <option value="openai">OpenAI API</option>
+              <option value="local">내 PC (Whisper)</option>
+            </select>
+          </label>
+          <label>자막 말투
+            <select name="sub_tone">
+              <option value="mz">MZ 말투</option>
+              <option value="normal">기본 (다듬기만)</option>
             </select>
           </label>
           <label>그림 생성
@@ -129,6 +136,19 @@
             <label>설명 이미지 빈도 <b><span data-show="scene_every"></span>초에 최대 1개</b>
               <input type="range" name="scene_every" min="8" max="90" step="1">
               <small>Claude가 넣는 설명 이미지의 최대 개수 기준. 숫자가 작을수록 많이 넣습니다(실제로는 필요한 곳에만). [기획] 재실행.</small>
+            </label>
+            <label>아이콘 크기 <b><span data-show="icon_size"></span></b>
+              <input type="range" name="icon_size" min="0.15" max="0.5" step="0.01">
+              <small>화면 짧은 변 대비 크기 (0.30 = 1080p에서 약 320px). 아이콘은 사람(얼굴·몸)과 가장 덜 겹치는 구석에 자동 배치됩니다.</small>
+            </label>
+            <label>로컬 Whisper 모델
+              <select name="whisper">
+                <option value="turbo">turbo (빠름·추천)</option>
+                <option value="large-v3">large-v3 (느림)</option>
+                <option value="medium">medium</option>
+                <option value="small">small</option>
+              </select>
+              <small>전사를 '내 PC'로 할 때만 씁니다.</small>
             </label>
             <label>카드 뒤 배경 어둡게 <b><span data-show="card_dim"></span></b>
               <input type="range" name="card_dim" min="0" max="0.8" step="0.05">
@@ -185,6 +205,7 @@
         <nav class="tabs">
           <button data-tab="subs" class="active">자막</button>
           <button data-tab="scenes">장면</button>
+          <button data-tab="fx">효과</button>
           <button data-tab="pii">개인정보</button>
           <button data-tab="result">결과</button>
         </nav>
@@ -210,6 +231,18 @@
             </div>
           </div>
           <div id="sceneGrid" class="scene-grid"></div>
+        </div>
+
+        <div id="tab-fx" class="tab" hidden>
+          <div class="tab-bar">
+            <span class="muted" id="fxSummary"></span>
+            <div>
+              <button id="replanFxBtn" class="btn small">효과 다시 고르기</button>
+              <button id="saveFxBtn" class="btn small yellow">효과 저장</button>
+            </div>
+          </div>
+          <p class="hint">강조(노란 자막) · 물음표(흔들림) · 흑백 연출(흑백요리사 스타일) · 줌. 글자·시간을 고치거나 끄고 저장하면 다음 렌더링에 반영됩니다.</p>
+          <div id="fxList" class="sub-list"></div>
         </div>
 
         <div id="tab-pii" class="tab" hidden>

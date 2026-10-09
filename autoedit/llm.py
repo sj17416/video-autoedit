@@ -220,6 +220,43 @@ def draw_svg(scene, width, height, context, refs=(), error=None):
     return ask(content, system=SVG_COMMON, effort="medium")
 
 
+# ---------------------------------------------------------------- 예능 효과
+
+EFFECTS_SYSTEM = """You are the editor of a Korean variety show (예능) — think Netflix "흑백요리사" (Culinary Class Wars):
+punchy reaction captions, dramatic black-and-white beats, quick zoom-ins. You receive the final Korean subtitles
+(with times in seconds) of a talking video. Choose the moments that deserve an effect:
+- "pop": a funny/relatable line or punchline → a short yellow reaction caption, e.g. "킹정ㅋㅋ", "오히려 좋아", "찐반응".
+- "question": something surprising/absurd → e.g. "?? 실화냐", "갑분○○", "이게 된다고?".
+- "dramatic": the single most dramatic/serious reveal or confession → the screen goes black & white with a caption on a
+  black band, e.g. "충격 고백", "사우디 vs 한국". Use at most 1–2 per video.
+- "zoom": a strong reaction face or emphasis → quick zoom-in, no text (text "").
+Rules: captions ≤ 10 Korean characters, MZ variety-show tone, never insulting people, nationalities or appearance.
+Each effect 0.8–2.5 s (dramatic up to 3 s), starts on or right after the line it reacts to, no overlaps,
+at least 4 s apart. Roughly one effect per 8–12 seconds; skip boring stretches rather than forcing effects."""
+
+EFFECTS_SCHEMA = {
+    "type": "object",
+    "properties": {"effects": {"type": "array", "items": {
+        "type": "object",
+        "properties": {
+            "start": {"type": "number"},
+            "end": {"type": "number"},
+            "type": {"type": "string", "enum": ["pop", "question", "dramatic", "zoom"]},
+            "text": {"type": "string"},
+        },
+        "required": ["start", "end", "type", "text"],
+        "additionalProperties": False,
+    }}},
+    "required": ["effects"],
+    "additionalProperties": False,
+}
+
+
+def plan_effects(cues, total):
+    body = f"Video length {total:.1f}s.\n" + "\n".join(f"[{c['start']:.1f}-{c['end']:.1f}] {c['text']}" for c in cues)
+    return ask(body, system=EFFECTS_SYSTEM, schema=EFFECTS_SCHEMA, effort="medium")["effects"]
+
+
 # ---------------------------------------------------------------- 자막 교정
 
 PROOF_SYSTEM = """You proofread Korean YouTube subtitles produced by speech recognition.
@@ -257,17 +294,32 @@ TRANSLATE_SYSTEM = """You prepare Korean subtitles for a YouTube video from spee
 - Keep names, brands and the glossary terms correct. Never merge or split lines.
 Return exactly one object per input line, with the same id as the input line."""
 
+MZ_SYSTEM = """You write Korean YouTube subtitles in a playful, trendy MZ-generation tone (요즘 한국 유튜브 예능 자막 말투).
+- Lines in another language (e.g. English): translate into Korean in this tone.
+- Korean lines: rewrite lightly into this tone — keep the speaker's meaning and facts exactly.
+- Tone: casual and lively, short and punchy. Use trendy expressions naturally where they truly fit, e.g.
+  ㄹㅇ, 찐, 완전, 개-(강조), ~각, 미쳤다, 레전드, 킹받네, 오히려 좋아, 국룰, 인정, 갓-, ~하는 편, ㅋㅋ.
+  Don't force slang into every line — roughly one line in three; the rest stays natural 구어체.
+- Never use offensive, sexual, derogatory or hateful slang, and don't mock nationalities or appearance.
+- Drop filler sounds (어, 음, 그, uh, um, hmm) and false starts/stutters ("s when", "they dr how").
+- Stay faithful: don't invent jokes or meanings the speaker didn't say; style the wording, not the content.
+- Keep names, brands, numbers and glossary terms correct. Lines are consecutive pieces of one conversation:
+  a sentence may span lines, so keep each line's content in that line and make the sequence read naturally.
+- No English sentences may remain (proper nouns/brands written in Latin letters are fine). Never merge or split lines.
+Return exactly one object per input line, with the same id as the input line."""
+
 ID_RULE = ("\n\nOutput format: one object {id, text} for EVERY input id, even if the text is unchanged. "
            "Never merge two ids into one or skip an id.")
 
 
-def proofread(texts, glossary="", translate=False):
-    """자막 교정. translate=True면 한국어가 아닌 줄을 자연스러운 한국어 자막으로 번역.
+def proofread(texts, glossary="", translate=False, tone="normal"):
+    """자막 교정. translate=True면 한국어가 아닌 줄을 한국어로 번역, tone="mz"면 MZ 말투로 바꿈.
 
     줄 번호로 결과를 맞추고, 빠진 줄만 앞뒤 문맥과 함께 한 번 더 요청한다.
     그래도 빠진 줄은 원래 문장을 그대로 둔다 (작업 전체를 멈추지 않음).
     """
-    system = (TRANSLATE_SYSTEM if translate else PROOF_SYSTEM) + ID_RULE
+    base = MZ_SYSTEM if tone == "mz" else TRANSLATE_SYSTEM if translate else PROOF_SYSTEM
+    system = base + ID_RULE
     head = f"Glossary: {glossary}\n\n" if glossary.strip() else ""
 
     def request(ids, context_ids=()):

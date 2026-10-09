@@ -15,7 +15,7 @@ def build_cues(transcript, timeline, portrait=False):
     max_chars = 15 if portrait else 24
     items = []
     for w in cutplan.load_words(transcript):
-        if w["filler"]:
+        if w["filler"] or cutplan.is_filler(w["word"]):  # 소리는 남겨도(위치가 대략적인 추임새) 자막에서는 뺀다
             continue
         s, e = timeline.to_new(w["start"]), timeline.to_new(w["end"])
         if e - s < 0.02:  # 컷으로 사라진 단어
