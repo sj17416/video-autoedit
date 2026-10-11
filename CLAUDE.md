@@ -27,6 +27,10 @@ All UI text and user-facing messages are **Korean**.
 - `autoedit/llm.py`: all Claude calls. It uses `claude-opus-5-5` through `client.beta.messages.stream` with the `server-side-fallback-2026-07-01` beta, `fallbacks="default"`, structured outputs via `output_config.format`, and `UserError` for messages shown to users.
 - `autoedit/imagegen.py`: OpenAI images (`OPENAI_IMAGE_MODEL`, default `gpt-image-1.5`). It draws no text in the image; captions are composited with PIL.
 - `autoedit/subtitles.py`, `render.py`, `privacy.py`, `illustrate.py`, `transcribe.py`, `env.py`: as named.
+- `autoedit/shopping.py` + `shop.py` (CLI) + `/api/shopping`: shopping-Shorts mode. Self-shot clips + a script (one line = one shot) →
+  1080x1920 Short: per-line edge-tts voice sets each shot's length, lines over 2 s are split into two shots from the same clip,
+  PIL subtitle sprites (white + black stroke, ≤12 chars/row, keyword yellow) overlaid with ffmpeg per shot, then concat + numpy audio mix
+  (clip audio 0.35, voice, BGM 0.12) + loudnorm. Uploads go to `shopping/<id>/` (gitignored).
 - `web/`: vanilla HTML/CSS/JS (neo-brutalist cream cards on navy). No build step.
 
 ## Windows / environment gotchas (learned the hard way)

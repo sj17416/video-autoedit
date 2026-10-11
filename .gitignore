@@ -34,3 +34,7 @@ venv/
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# 쇼핑 쇼츠 작업 파일 (올린 클립)
+shopping/
+_쇼핑작업/

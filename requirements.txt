@@ -10,3 +10,4 @@ resvg_py
 python-dotenv
 flask
 openai
+edge-tts
