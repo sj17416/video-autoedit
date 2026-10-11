@@ -268,8 +268,7 @@ def make_short(clips, script, out, work, keyword=None, voice="여성", rate="+10
             a, b = max(c["start"], shot_start), min(c["end"], shot_start + s["dur"])
             if b > a and c["line"] == s["line"]:
                 png = work / f"sub_{k:02d}.png"
-                if not png.exists():
-                    subtitle_sprite(c["rows"], keyword).save(png)
+                subtitle_sprite(c["rows"], keyword).save(png)  # 대본을 고쳐 다시 돌릴 수 있으니 항상 새로 그림
                 overlays.append((png, a - shot_start, b - shot_start))
         seg = work / f"shot_{j:02d}.mp4"
         inputs = ["-ss", f"{s['start']:.3f}", "-i", str(s["clip"])]
