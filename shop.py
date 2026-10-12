@@ -24,6 +24,7 @@ def main():
     ap.add_argument("--bgm", help="배경음악 파일 (선택)")
     ap.add_argument("--voice", default="여성", choices=[*VOICES, "없음"], help="AI 목소리 (없음 = 클립 소리만)")
     ap.add_argument("--rate", default="+10%", help="말 빠르기 (예: +10%%, -5%%)")
+    ap.add_argument("--gap", type=float, default=0.08, help="줄 사이 쉼(초). 0 = 쉬지 않고 이어 말하기")
     ap.add_argument("--keyword", help="노란색으로 강조할 키워드 (기본: 대본의 '키워드:' 줄)")
     ap.add_argument("-o", "--output", help="출력 파일 경로")
     args = ap.parse_args()
@@ -35,7 +36,7 @@ def main():
     out = Path(args.output) if args.output else output_dir() / f"{folder.name}_쇼핑.mp4"
     try:
         make_short(list_clips(folder), script.read_text(encoding="utf-8-sig"), out, folder / "_쇼핑작업",
-                   keyword=args.keyword, voice=args.voice, rate=args.rate, bgm=args.bgm)
+                   keyword=args.keyword, voice=args.voice, rate=args.rate, bgm=args.bgm, gap=args.gap)
     except (llm.UserError, jobctl.Cancelled) as e:
         sys.exit(f"\n오류: {e}")
 

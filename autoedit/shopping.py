@@ -301,7 +301,8 @@ def assign_clips(lines, clips):
 
 
 def make_short(clips, script, out, work, keyword=None, voice="여성", rate="+10%", bgm=None,
-               clip_volume=0.35, bgm_volume=0.12, voice_volume=1.0):
+               clip_volume=0.35, bgm_volume=0.12, voice_volume=1.0, gap=GAP):
+    """gap: 줄 사이 쉼(초). 0이면 다큐 내레이션처럼 쉬지 않고 이어 말한다."""
     """클립 목록 + 대본 글 → 완성본 mp4 (+ 같은 이름의 .srt). voice="없음"이면 AI 목소리 없이 클립 소리만."""
     work = Path(work)
     work.mkdir(parents=True, exist_ok=True)
@@ -316,8 +317,8 @@ def make_short(clips, script, out, work, keyword=None, voice="여성", rate="+10
         if voice != "없음":
             mp3 = work / f"voice_{i:02d}.mp3"
             tts(l["text"], voice, rate, mp3)
-            a = trim_silence(decode(mp3))
-            dur = max(MIN_SHOT, len(a) / SR + GAP)
+            a = trim_silence(decode(mp3), max_pause=min(0.18, max(0.08, gap)))
+            dur = max(MIN_SHOT if gap > 0 else 0.5, len(a) / SR + gap)
         else:
             a = np.zeros((0, 2), np.float32)
             dur = max(1.2, len(l["text"]) * 0.17 + 0.4)  # 읽기 좋은 시간
