@@ -447,12 +447,7 @@ def make_short(clips, script, out, work, keyword=None, voice="여성", rate="+10
         n = min(len(a), n_total - pos)
         mix[pos:pos + n] += a[:n] * voice_volume
         pos += int(round(dur * SR))
-    # 효과음: 컷이 바뀔 때 작은 '휙', 키워드 자막이 뜰 때 '뿅'
-    pos = 0
-    for j, s in enumerate(shots):
-        if j:
-            add_sfx(mix, "zoom", pos / SR - 0.1, 0.25)
-        pos += int(round(s["dur"] * SR))
+    # 효과음: 키워드 자막이 뜰 때만 '뿅'. 컷마다 '휙'은 거슬린다는 피드백으로 뺐다
     for c in cues:
         if keyword and keyword in c["text"]:
             add_sfx(mix, "pop", c["start"], 0.6)
