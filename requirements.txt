@@ -10,4 +10,5 @@ resvg_py
 python-dotenv
 flask
 openai
+google-genai
 edge-tts
