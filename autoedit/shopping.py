@@ -12,6 +12,9 @@
 - [카드: 상품 이름 / 한 줄 설명]을 붙인 줄은 그 컷 동안 화면 위쪽에 상품 카드가 뜬다 (읽지는 않는다).
 
 - 클립은 이름 순서대로 줄에 하나씩 붙는다. "파일이름 | 자막"처럼 쓰면 그 클립을 쓴다.
+  "a.mp4, b.mp4 | 자막"처럼 여러 개를 적으면 그 줄 동안 화면이 그 클립들로 빠르게 바뀐다.
+- 머리 줄(선택): "제목: …"(교육용 제목 띠 + STEP 번호), "배지: 30초 레시피"(왼쪽 위 배지),
+  "카운트다운: 켬"(오른쪽 위 큰 숫자가 줄마다 하나씩 줄어든다), "컷길이: 0.9"(한 화면 최대 초).
 - 자막: 화면 가운데보다 살짝 아래, 흰 글자 + 검은 테두리, 한 줄 12자 이내, 키워드는 노란색.
 - 컷: 말이 2초를 넘으면 같은 클립의 다른 부분으로 한 번 더 끊어 1~2초마다 화면이 바뀐다.
 - 화면: 컷마다 천천히 다가가는 줌, 키워드가 나오는 컷은 빠르게 확 당기는 줌.
@@ -36,11 +39,16 @@ from .subtitles import FONT_CANDIDATES, write_srt
 W, H, FPS = 1080, 1920, 30
 VIDEO_EXTS = {".mp4", ".mov", ".m4v", ".mkv", ".avi", ".webm"}
 VOICES = {"여성": "ko-KR-SunHiNeural", "남성": "ko-KR-InJoonNeural",
-          "쇼츠여성": "openai:coral", "또렷여성": "openai:shimmer", "OpenAI여성": "openai:nova", "OpenAI남성": "openai:onyx"}
+          "쇼츠여성": "openai:coral", "또렷여성": "openai:shimmer", "OpenAI여성": "openai:nova", "OpenAI남성": "openai:onyx",
+          "자연여성": "openai:marin", "자연남성": "openai:cedar"}
 OPENAI_TTS_MODEL = os.environ.get("OPENAI_TTS_MODEL", "gpt-4o-mini-tts")
 OPENAI_TTS_STYLES = {  # 목소리별 말투 지시 (없으면 OPENAI_TTS_STYLE)
     "shimmer": "20대 한국 여성 유튜버처럼 밝고 친근하게, 또박또박 빠르게 말해 주세요. 문장 사이를 길게 쉬지 마세요.",
 }
+# 자연여성·자연남성(marin·cedar): 사용자가 고른 요리 채널 내레이터 말투 (2026-10-12 비교에서 가장 또렷했음)
+OPENAI_TTS_STYLES["marin"] = OPENAI_TTS_STYLES["cedar"] = (
+    "한국 유튜브 쇼츠 요리 채널 내레이터처럼 말해 주세요. 밝고 생기 있고 자신감 있게, 빠른 템포로 리듬감 있게. "
+    "문장 사이를 쉬지 말고 바로 이어서, 강조할 단어는 살짝 힘주어.")
 OPENAI_TTS_STYLE = ("한국 유튜브 쇼츠에서 흔히 들리는 AI 성우 톤으로 말해 주세요. 20대 여성, 하이톤, 아주 밝고 경쾌하게, "
                     "빠른 속도로, 끝을 살짝 올리며 리듬감 있게. 아나운서처럼 딱딱하면 안 되고 문장 사이를 길게 쉬지 마세요.")
 DEFAULT_KEYWORDS = ("촉촉", "바삭", "탱글", "쫀득")
@@ -73,8 +81,9 @@ def parse_script(text, keyword=None):
         clip = None
         if "|" in line:
             left, right = (s.strip() for s in line.split("|", 1))
-            if Path(left).suffix.lower() in VIDEO_EXTS:
-                clip, line = left, right
+            names = [n.strip() for n in left.split(",") if n.strip()]
+            if names and all(Path(n).suffix.lower() in VIDEO_EXTS for n in names):
+                clip, line = names, right
         line = re.sub(r"^\d+\s*[.)]\s*", "", line)  # "1. " 같은 번호는 뺀다
         hook = line.startswith("!")
         nostep = line.startswith("-")  # '-'로 시작하면 교육용 템플릿에서 STEP 번호를 안 붙인다 (결과·리액션 줄)
@@ -235,6 +244,34 @@ def step_sprite(n):
     return img
 
 
+def badge_sprite(text):
+    """왼쪽 위 작은 배지 (예: '30초 레시피'): 흰 굵은 글자 두 줄, 검은 그림자."""
+    fs = int(W * 0.05)
+    f = _font(fs)
+    rows = text.split(" ", 1) if len(text) > 4 else [text]
+    w = int(max(f.getlength(r) for r in rows) + fs)
+    h = int(fs * 1.25 * len(rows) + fs * 0.6)
+    img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    for i, r in enumerate(rows):
+        d.text((fs * 0.5, fs * 0.3 + i * fs * 1.25), r, font=f, fill=(255, 255, 255, 255),
+               stroke_width=max(2, fs // 12), stroke_fill=(0, 0, 0, 255))
+    return img
+
+
+def count_sprite(n):
+    """카운트다운 큰 숫자: 흰 글자 + 검은 테두리."""
+    fs = int(W * 0.13)
+    f = _font(fs)
+    text = str(n)
+    sw = max(4, fs // 14)
+    w, h = int(f.getlength(text) + sw * 4), int(fs * 1.3)
+    img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    ImageDraw.Draw(img).text((sw * 2, 0), text, font=f, fill=(255, 255, 255, 255), stroke_width=sw,
+                             stroke_fill=(0, 0, 0, 255))
+    return img
+
+
 # ---------------------------------------------------------------- 목소리
 
 def _openai_tts(text, voice, rate, out_path):
@@ -346,20 +383,20 @@ def list_clips(folder):
 def assign_clips(lines, clips):
     """대본 줄마다 클립을 붙인다. 이름을 적은 줄은 그 클립, 나머지는 남은 클립을 순서대로."""
     by_name = {c.name: c for c in clips}
-    named = {l["clip"] for l in lines if l["clip"]}
+    named = {n for l in lines if l["clip"] for n in l["clip"]}
     missing = [n for n in named if n not in by_name]
     if missing:
         raise UserError(f"대본에 적은 클립이 폴더에 없습니다: {', '.join(missing)}")
     rest = iter(c for c in clips if c.name not in named)
     out = []
     for l in lines:
-        clip = by_name[l["clip"]] if l["clip"] else next(rest, None)
+        clip = [by_name[n] for n in l["clip"]] if l["clip"] else next(rest, None)
         if clip is None:
             need = len(lines) - len(named)
             raise UserError(f"클립이 부족합니다. 대본은 {len(lines)}줄인데 클립이 {len(clips)}개예요 "
                             f"(이름을 안 적은 줄 {need}개에 클립이 하나씩 필요).")
-        out.append(clip)
-    return out
+        out.append(clip if isinstance(clip, list) else [clip])
+    return out  # 줄마다 클립 목록
 
 
 def make_short(clips, script, out, work, keyword=None, voice="여성", rate="+10%", bgm=None,
@@ -369,10 +406,17 @@ def make_short(clips, script, out, work, keyword=None, voice="여성", rate="+10
     work = Path(work)
     work.mkdir(parents=True, exist_ok=True)
     # '제목:' 줄이 있으면 교육용 템플릿: 위쪽 제목 띠 + 과정 줄마다 STEP 번호
-    m = re.search(r"^\s*제목\s*[:：]\s*(.+?)\s*$", script, re.M)
-    title = m[1] if m else None
-    if m:
+    def header(name):
+        nonlocal script
+        m = re.search(rf"^\s*{name}\s*[:：]\s*(.+?)\s*$", script, re.M)
+        if not m:
+            return None
         script = script[:m.start()] + script[m.end():]
+        return m[1]
+    title = header("제목")
+    badge = header("배지")  # 왼쪽 위 배지 (예: 30초 레시피)
+    countdown = (header("카운트다운") or "").strip() in ("켬", "on", "예", "1")
+    max_shot = float(header("컷길이") or MAX_SHOT)
     keyword, lines = parse_script(script, keyword)
     step = 0
     for l in lines:
@@ -399,16 +443,27 @@ def make_short(clips, script, out, work, keyword=None, voice="여성", rate="+10
         durs.append(round(dur * FPS) / FPS)  # 프레임 단위로 맞춰 오디오와 영상이 어긋나지 않게
         print(f"  {i + 1:2d}. {dur:4.1f}초  {l['text']}")
 
-    # 2) 화면 조각: 2초가 넘는 줄은 같은 클립의 앞부분 → 뒷부분으로 한 번 더 끊는다
+    # 카운트다운: 후킹 줄을 뺀 줄마다 남은 개수 (마지막 줄이 1)
+    left = sum(1 for l in lines if not l["hook"])
+    for l in lines:
+        l["count"] = None
+        if countdown and not l["hook"]:
+            l["count"] = left
+            left -= 1
+
+    # 2) 화면 조각: 줄이 max_shot보다 길면 끊는다. 클립이 여럿이면 클립마다, 하나면 같은 클립의 앞 → 뒤
     shots, cues, t = [], [], 0.0
-    for i, (l, clip, dur) in enumerate(zip(lines, clips, durs)):
-        clen = probe(clip)["duration"]
-        n = 2 if dur > MAX_SHOT and clen >= dur + 0.6 else 1
+    for i, (l, clist, dur) in enumerate(zip(lines, clips, durs)):
+        n = max(len(clist), int(np.ceil(dur / max_shot - 0.15)))
+        n = max(1, min(n, int(dur / 0.4)))  # 한 조각이 0.4초보다 짧아지지는 않게
         part = round(dur / n * FPS) / FPS
         for k in range(n):
             d = part if k < n - 1 else round((dur - part * (n - 1)) * FPS) / FPS
-            # 첫 조각은 클립 앞(0.2초 뒤)부터, 둘째 조각은 클립 뒤쪽에서 → 같은 클립이라도 화면이 바뀐다
-            off = 0.2 if k == 0 else max(0.2, clen - d - 0.2)
+            clip = clist[k % len(clist)]
+            clen = probe(clip)["duration"]
+            # 같은 클립을 다시 쓰는 조각은 클립 뒤쪽에서 → 같은 클립이라도 화면이 바뀐다
+            again = k >= len(clist)
+            off = 0.2 if not again else max(0.2, clen - d - 0.2)
             off = min(off, max(0.0, clen - d))
             shots.append({"clip": clip, "start": off, "dur": d, "line": i})
         # 후킹 줄은 글자가 커서 한 줄 10자, 한 화면에 3줄까지
@@ -434,6 +489,14 @@ def make_short(clips, script, out, work, keyword=None, voice="여성", rate="+10
             png = work / "title.png"
             title_sprite(title).save(png)
             overlays.append((png, 0, s["dur"], H * 0.10))
+        if badge:
+            png = work / "badge.png"
+            badge_sprite(badge).save(png)
+            overlays.append((png, 0, s["dur"], H * (0.17 if title else 0.08), W * 0.04))
+        if line["count"]:
+            png = work / f"count_{line['count']:02d}.png"
+            count_sprite(line["count"]).save(png)
+            overlays.append((png, 0, s["dur"], H * (0.19 if title else 0.09), -W * 0.05))
         if line["step"]:
             png = work / f"step_{line['step']:02d}.png"
             step_sprite(line["step"]).save(png)
@@ -473,11 +536,13 @@ def make_short(clips, script, out, work, keyword=None, voice="여성", rate="+10
         fc = (f"[0:v]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},setsar=1,fps={FPS},"
               f"tpad=stop_mode=clone:stop_duration={s['dur']:.3f},"
               f"zoompan=z='{z}':x='{cx}':y='{cy_}':d=1:s={W}x{H}:fps={FPS}{flash}[v0]")
-        for k, (png, a, b, cy) in enumerate(overlays):
+        for k, (png, a, b, cy, *xs) in enumerate(overlays):
             inputs += ["-i", str(png)]
             # 자막이 0.1초 동안 아래에서 톡 튀어 오르듯 나타난다
             pop = f"{H * 0.025:.0f}*max(0,1-(t-{a:.3f})/0.1)" if png.name.startswith("sub_") else "0"
-            fc += (f";[v{k}][{k + 1}:v]overlay=x=(W-w)/2:y='{cy:.0f}-h/2+{pop}':"
+            # x: 없으면 가운데, 양수면 왼쪽에서 그만큼, 음수면 오른쪽에서 그만큼
+            x = "(W-w)/2" if not xs else (f"{xs[0]:.0f}" if xs[0] >= 0 else f"W-w-{-xs[0]:.0f}")
+            fc += (f";[v{k}][{k + 1}:v]overlay=x={x}:y='{cy:.0f}-h/2+{pop}':"
                    f"enable='between(t,{a:.3f},{b:.3f})'[v{k + 1}]")
         run([*inputs, "-filter_complex", fc, "-map", f"[v{len(overlays)}]", "-t", f"{s['dur']:.3f}", "-an",
              "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-r", str(FPS), seg])
