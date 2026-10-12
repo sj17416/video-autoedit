@@ -5,8 +5,11 @@
     키워드: 쫀득
     아이가 간식 사 달라고 조르는데
     고구마가 남아 있길래
-    3_치즈넣기.mp4 | 이걸 넣고 치즈볼을 만들어 봤어요
+    3_치즈넣기.mp4 | 이걸 넣고 치즈볼을 만들어 봤어요 [카드: 코다노 모짜렐라 / 자연치즈 99.5%]
     레시피 궁금하면 '쫀득' 남겨 주세요
+
+- 맨 앞에 "!"를 붙인 줄은 후킹 자막: 크게, 화면 위쪽에 (첫 1~2초용).
+- [카드: 상품 이름 / 한 줄 설명]을 붙인 줄은 그 컷 동안 화면 위쪽에 상품 카드가 뜬다 (읽지는 않는다).
 
 - 클립은 이름 순서대로 줄에 하나씩 붙는다. "파일이름 | 자막"처럼 쓰면 그 클립을 쓴다.
 - 자막: 화면 가운데보다 살짝 아래, 흰 글자 + 검은 테두리, 한 줄 12자 이내, 키워드는 노란색.
@@ -65,8 +68,16 @@ def parse_script(text, keyword=None):
             if Path(left).suffix.lower() in VIDEO_EXTS:
                 clip, line = left, right
         line = re.sub(r"^\d+\s*[.)]\s*", "", line)  # "1. " 같은 번호는 뺀다
+        hook = line.startswith("!")
+        line = line.lstrip("!").strip()
+        card = None
+        m = re.search(r"\[\s*카드\s*[:：]\s*(.+?)\]", line)
+        if m:
+            title, _, sub = m[1].partition("/")
+            card = (title.strip(), sub.strip())
+            line = (line[:m.start()] + line[m.end():]).strip()
         if line:
-            lines.append({"clip": clip, "text": line})
+            lines.append({"clip": clip, "text": line, "hook": hook, "card": card})
     if not lines:
         raise UserError("대본이 비어 있습니다. 한 줄에 한 컷씩 자막을 적어 주세요.")
     if not keyword:  # 키워드를 안 적었으면 대본에 나온 식감 단어를 쓴다
@@ -76,11 +87,15 @@ def parse_script(text, keyword=None):
 
 
 def wrap(text, max_chars=MAX_CHARS):
-    """한 줄 max_chars 이내로 나눈다. "?" "!" "." 뒤에서는 꼭 줄을 바꾸고, 나머지는 띄어쓰기 기준.
-    너무 긴 단어는 글자 단위로 자른다."""
+    """한 줄 max_chars 이내로 나눈다. "?" "!" "." 뒤에서는 꼭 줄을 바꾸고, 한 줄에 안 들어가면 첫 쉼표 뒤에서 끊는다.
+    두 줄이 되면 위아래 길이가 비슷하게 나눈다. 너무 긴 단어는 글자 단위로 자른다."""
     sentences = [x for x in re.split(r"(?<=[?!.])\s+", text.strip()) if x]
-    if len(sentences) > 1:
-        return [row for x in sentences for row in wrap(x, max_chars)]
+    if len(sentences) == 1 and len(text) > max_chars:
+        sentences = [x for x in re.split(r"(?<=,)\s+", text.strip(), maxsplit=1) if x]
+    return [row for x in sentences for row in _wrap_words(x, max_chars)]
+
+
+def _wrap_words(text, max_chars):
     out, cur = [], ""
     for word in text.split():
         while len(word) > max_chars:
@@ -98,13 +113,19 @@ def wrap(text, max_chars=MAX_CHARS):
             cur = word
     if cur:
         out.append(cur)
+    if len(out) == 2:  # 두 줄이면 위아래 균형 있게 ("팜유가 주원료면" / "치즈가 아니에요")
+        words = text.split()
+        splits = [(" ".join(words[:i]), " ".join(words[i:])) for i in range(1, len(words))]
+        ok = [sp for sp in splits if max(map(len, sp)) <= max_chars]
+        if ok:
+            out = list(min(ok, key=lambda sp: max(map(len, sp))))
     return out
 
 
-def subtitle_chunks(text):
-    """자막을 화면에 한 번에 보일 덩어리(최대 2줄)로 나눈다."""
-    rows = wrap(text)
-    return [rows[i:i + 2] for i in range(0, len(rows), 2)]
+def subtitle_chunks(text, max_chars=MAX_CHARS, per=2):
+    """자막을 화면에 한 번에 보일 덩어리(최대 per줄)로 나눈다."""
+    rows = wrap(text, max_chars)
+    return [rows[i:i + per] for i in range(0, len(rows), per)]
 
 
 # ---------------------------------------------------------------- 자막 그림
@@ -128,10 +149,10 @@ def _runs(row, keyword):
     return runs
 
 
-def subtitle_sprite(rows, keyword):
+def subtitle_sprite(rows, keyword, scale=1.0):
     """흰 글자 + 검은 테두리 + 부드러운 그림자, 키워드는 노란색. 키워드가 있는 자막은 조금 더 크게."""
     big = bool(keyword) and any(keyword in r for r in rows)
-    fs = int(W * (0.082 if big else 0.07))
+    fs = int(W * (0.082 if big else 0.07) * scale)
     font = _font(fs)
     sw = max(3, int(fs * 0.12))
     pad = int(fs * 0.5)
@@ -153,6 +174,30 @@ def subtitle_sprite(rows, keyword):
     return Image.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(fs * 0.08)), img)
 
 
+def card_sprite(title, sub):
+    """상품 카드: 흰 둥근 상자에 상품 이름(검정) + 한 줄 설명(빨강, 크게)."""
+    fs_t, fs_s = int(W * 0.06), int(W * 0.085)
+    pad = int(W * 0.04)
+    widest = max(_font(fs_t).getlength(title), _font(fs_s).getlength(sub) if sub else 0)
+    if widest > W * 0.9 - pad * 2:  # 글이 길면 화면 폭에 맞게 줄인다
+        k = (W * 0.9 - pad * 2) / widest
+        fs_t, fs_s = int(fs_t * k), int(fs_s * k)
+    ft, fsub = _font(fs_t), _font(fs_s)
+    w = int(max(ft.getlength(title), fsub.getlength(sub) if sub else 0) + pad * 2)
+    h = int(pad * 1.6 + fs_t * 1.25 + (fs_s * 1.25 if sub else 0))
+    img = Image.new("RGBA", (w + 16, h + 16), (0, 0, 0, 0))
+    shadow = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    ImageDraw.Draw(shadow).rounded_rectangle((8, 14, w + 8, h + 14), radius=pad, fill=(0, 0, 0, 120))
+    img = Image.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(8)), img)
+    d = ImageDraw.Draw(img)
+    d.rounded_rectangle((8, 8, w + 8, h + 8), radius=pad, fill=(255, 255, 255, 245))
+    y = 8 + pad * 0.8
+    d.text((8 + (w - ft.getlength(title)) / 2, y), title, font=ft, fill=(25, 25, 25, 255))
+    if sub:
+        d.text((8 + (w - fsub.getlength(sub)) / 2, y + fs_t * 1.25), sub, font=fsub, fill=(225, 30, 40, 255))
+    return img
+
+
 # ---------------------------------------------------------------- 목소리
 
 def tts(text, voice, rate, out_path):
@@ -162,9 +207,9 @@ def tts(text, voice, rate, out_path):
     except ImportError:
         raise UserError("AI 목소리 모듈이 없습니다. 명령창에서 'pip install edge-tts'를 실행해 주세요.") from None
     proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
-    comm = edge_tts.Communicate(text, VOICES.get(voice, voice), rate=rate, proxy=proxy)
     for attempt in range(4):
-        try:
+        try:  # Communicate는 한 번만 쓸 수 있어서 시도마다 새로 만든다
+            comm = edge_tts.Communicate(text, VOICES.get(voice, voice), rate=rate, proxy=proxy)
             asyncio.run(comm.save(str(out_path)))
         except Exception as e:  # 일시적인 연결 오류는 다시 시도
             if attempt == 3:
@@ -292,7 +337,8 @@ def make_short(clips, script, out, work, keyword=None, voice="여성", rate="+10
             off = 0.2 if k == 0 else max(0.2, clen - d - 0.2)
             off = min(off, max(0.0, clen - d))
             shots.append({"clip": clip, "start": off, "dur": d, "line": i})
-        chunks = subtitle_chunks(l["text"])
+        # 후킹 줄은 글자가 커서 한 줄 10자, 한 화면에 3줄까지
+        chunks = subtitle_chunks(l["text"], 10, 3) if l["hook"] else subtitle_chunks(l["text"])
         total = sum(len("".join(c)) for c in chunks)
         ct = t
         for c in chunks:
@@ -309,12 +355,18 @@ def make_short(clips, script, out, work, keyword=None, voice="여성", rate="+10
         jobctl.check()
         shot_start = sum(x["dur"] for x in shots[:j])
         overlays = []
+        line = lines[s["line"]]
+        if line["card"]:  # 상품 카드는 그 줄 내내 화면 위쪽에
+            png = work / f"card_{s['line']:02d}.png"
+            card_sprite(*line["card"]).save(png)
+            overlays.append((png, 0, s["dur"], H * 0.17))
         for k, c in enumerate(cues):
             a, b = max(c["start"], shot_start), min(c["end"], shot_start + s["dur"])
             if b > a and c["line"] == s["line"]:
                 png = work / f"sub_{k:02d}.png"
-                subtitle_sprite(c["rows"], keyword).save(png)  # 대본을 고쳐 다시 돌릴 수 있으니 항상 새로 그림
-                overlays.append((png, a - shot_start, b - shot_start))
+                # 대본을 고쳐 다시 돌릴 수 있으니 항상 새로 그림. 후킹 줄은 크게, 위쪽에
+                subtitle_sprite(c["rows"], keyword, 1.4 if line["hook"] else 1.0).save(png)
+                overlays.append((png, a - shot_start, b - shot_start, H * (0.30 if line["hook"] else SUB_CY)))
         seg = work / f"shot_{j:02d}.mp4"
         inputs = ["-ss", f"{s['start']:.3f}", "-i", str(s["clip"])]
         n = max(1, round(s["dur"] * FPS))
@@ -326,9 +378,9 @@ def make_short(clips, script, out, work, keyword=None, voice="여성", rate="+10
         fc = (f"[0:v]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},setsar=1,fps={FPS},"
               f"tpad=stop_mode=clone:stop_duration={s['dur']:.3f},"
               f"zoompan=z='{z}':x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':d=1:s={W}x{H}:fps={FPS}[v0]")
-        for k, (png, a, b) in enumerate(overlays):
+        for k, (png, a, b, cy) in enumerate(overlays):
             inputs += ["-i", str(png)]
-            fc += (f";[v{k}][{k + 1}:v]overlay=x=(W-w)/2:y={H * SUB_CY:.0f}-h/2:"
+            fc += (f";[v{k}][{k + 1}:v]overlay=x=(W-w)/2:y={cy:.0f}-h/2:"
                    f"enable='between(t,{a:.3f},{b:.3f})'[v{k + 1}]")
         run([*inputs, "-filter_complex", fc, "-map", f"[v{len(overlays)}]", "-t", f"{s['dur']:.3f}", "-an",
              "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-r", str(FPS), seg])
