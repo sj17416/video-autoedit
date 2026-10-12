@@ -136,7 +136,7 @@ def collect(store_dir, queries=QUERIES, days=7, per_query=25, top=20):
             t0, v0 = prev[-1]
             hours = (now - datetime.fromisoformat(t0)).total_seconds() / 3600
             if hours >= 1:
-                growth = (views - v0) * 24 / hours
+                growth = max(views - v0, 0) * 24 / hours  # 유튜브가 조회수를 깎아 고칠 때가 있다
         sub = subs.get(sn["channelId"])
         ratio = views / sub if sub else None
         score = math.log10(views + 1) + math.log10(growth + 1) + (math.log10(ratio + 1) if ratio else 0)
