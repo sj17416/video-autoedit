@@ -36,13 +36,14 @@ from .subtitles import FONT_CANDIDATES, write_srt
 W, H, FPS = 1080, 1920, 30
 VIDEO_EXTS = {".mp4", ".mov", ".m4v", ".mkv", ".avi", ".webm"}
 VOICES = {"여성": "ko-KR-SunHiNeural", "남성": "ko-KR-InJoonNeural",
-          "OpenAI여성": "openai:nova", "OpenAI남성": "openai:onyx"}
+          "쇼츠여성": "openai:coral", "OpenAI여성": "openai:nova", "OpenAI남성": "openai:onyx"}
 OPENAI_TTS_MODEL = os.environ.get("OPENAI_TTS_MODEL", "gpt-4o-mini-tts")
-OPENAI_TTS_STYLE = ("20대 한국 유튜버처럼 밝고 친근한 말투로, 쇼츠 내레이션답게 빠르고 또박또박 말해 주세요. "
-                    "딱딱한 아나운서 톤은 피하고 문장 사이를 길게 쉬지 마세요.")
+OPENAI_TTS_STYLE = ("한국 유튜브 쇼츠에서 흔히 들리는 AI 성우 톤으로 말해 주세요. 20대 여성, 하이톤, 아주 밝고 경쾌하게, "
+                    "빠른 속도로, 끝을 살짝 올리며 리듬감 있게. 아나운서처럼 딱딱하면 안 되고 문장 사이를 길게 쉬지 마세요.")
 DEFAULT_KEYWORDS = ("촉촉", "바삭", "탱글", "쫀득")
 MAX_CHARS = 12        # 자막 한 줄 최대 글자 수
-MAX_SHOT = 2.0        # 한 화면이 이보다 길면 같은 클립의 다른 부분으로 한 번 더 끊는다
+MAX_SHOT = 1.5        # 한 화면이 이보다 길면 같은 클립의 다른 부분으로 한 번 더 끊는다
+MOVES = ("in", "out", "pan_left", "pan_right")  # 컷마다 돌아가며 쓰는 카메라 움직임
 MIN_SHOT = 1.0
 GAP = 0.08            # 줄 사이 숨 고르기 (초). 길면 말이 늘어져 보인다
 ZOOM = 0.06           # 컷마다 천천히 다가가는 정도 (6%)
@@ -404,13 +405,28 @@ def make_short(clips, script, out, work, keyword=None, voice="여성", rate="+10
             pn = round(0.3 * FPS)  # 키워드 컷: 0.3초 만에 확 당기고 그대로 유지
             z = f"1+{PUNCH}*min(on/{pn},1)*(2-min(on/{pn},1))"
         else:
+            z = None
+        # 단조롭지 않게: 컷마다 카메라 움직임을 돌아가며 바꾼다 (다가가기 / 물러나기 / 왼쪽·오른쪽 흐르기)
+        cx, cy_ = "iw/2-iw/zoom/2", "ih/2-ih/zoom/2"
+        move = j % len(MOVES) if z is None else -1
+        if move == 1:
+            z = f"1+{ZOOM * 2}*(1-on/{n})"
+        elif move in (2, 3):
+            z = "1.12"
+            sweep = f"(iw-iw/zoom)*on/{n}"
+            cx = sweep if move == 2 else f"(iw-iw/zoom)-{sweep}"
+        elif z is None:
             z = f"1+{ZOOM}*on/{n}"
+        # 새 줄이 시작되는 컷은 하얗게 번쩍 (0.08초)
+        flash = ",fade=t=in:st=0:d=0.08:color=white" if s is next(x for x in shots if x["line"] == s["line"]) and j else ""
         fc = (f"[0:v]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},setsar=1,fps={FPS},"
               f"tpad=stop_mode=clone:stop_duration={s['dur']:.3f},"
-              f"zoompan=z='{z}':x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':d=1:s={W}x{H}:fps={FPS}[v0]")
+              f"zoompan=z='{z}':x='{cx}':y='{cy_}':d=1:s={W}x{H}:fps={FPS}{flash}[v0]")
         for k, (png, a, b, cy) in enumerate(overlays):
             inputs += ["-i", str(png)]
-            fc += (f";[v{k}][{k + 1}:v]overlay=x=(W-w)/2:y={cy:.0f}-h/2:"
+            # 자막이 0.1초 동안 아래에서 톡 튀어 오르듯 나타난다
+            pop = f"{H * 0.025:.0f}*max(0,1-(t-{a:.3f})/0.1)"
+            fc += (f";[v{k}][{k + 1}:v]overlay=x=(W-w)/2:y='{cy:.0f}-h/2+{pop}':"
                    f"enable='between(t,{a:.3f},{b:.3f})'[v{k + 1}]")
         run([*inputs, "-filter_complex", fc, "-map", f"[v{len(overlays)}]", "-t", f"{s['dur']:.3f}", "-an",
              "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-r", str(FPS), seg])
