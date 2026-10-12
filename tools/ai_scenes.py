@@ -18,9 +18,10 @@ import ctranslate2  # noqa: F401,E402  (Windows: 런타임 DLL 을 먼저 올린
 from autoedit import env, media  # noqa: E402
 from autoedit.pipeline import ROOT  # noqa: E402
 
-STYLE = ("Photorealistic vertical frame from a premium Korean cooking Short. Bright clean home kitchen, white marble counter, "
-         "soft natural window light, appetizing, shallow depth of field. Only hands visible, no faces, no text, no logos, "
-         "no brand labels, no watermark. ")
+STYLE = ("Real candid smartphone photo (iPhone main camera, vertical) taken in an ordinary Korean home kitchen, not a studio. "
+         "Natural indoor light, slight imperfections: a few crumbs, small splashes, real steam, slightly uneven cuts, "
+         "natural food texture and true-to-life colors, no over-saturation, no CGI look. Only real-looking hands visible "
+         "(natural skin, short nails), no faces, no text, no logos, no brand labels, no watermark. ")
 
 
 def main():
@@ -31,7 +32,7 @@ def main():
     ap.add_argument("scenes", help="장면 설명 JSON")
     ap.add_argument("out", help="출력 폴더")
     ap.add_argument("--model", default="gpt-image-2")
-    ap.add_argument("--quality", default="medium", choices=["low", "medium", "high"])
+    ap.add_argument("--quality", default="high", choices=["low", "medium", "high"])
     ap.add_argument("--seconds", type=float, default=4.0, help="클립 길이 (대사보다 길면 됨)")
     args = ap.parse_args()
 
