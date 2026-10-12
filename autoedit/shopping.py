@@ -17,6 +17,8 @@
   "카운트다운: 켬"(오른쪽 위 큰 숫자가 줄마다 하나씩 줄어든다), "컷길이: 0.9"(한 화면 최대 초),
   "루프: 켬"(끝이 처음으로 끊김 없이 이어지게: 배경음악 이음매를 맞추고 끝에서 줄이지 않는다),
   "자연: 켬"(하얀 번쩍임 대신 손으로 든 듯한 잔잔한 흔들림 → 덜 딱딱하게).
+  "스티커: 켬"(제목을 크림색 스티커 + 귀여운 글꼴로, 마지막 단어는 빨강),
+  "순서: a.mp4=씻기, b.mp4=볶기, …"(과정 줄마다 위쪽에 동그란 사진 + 화살표로 조리 순서 띠, 지금 단계는 빨강).
 - 자막: 화면 가운데보다 살짝 아래, 흰 글자 + 검은 테두리, 한 줄 12자 이내, 키워드는 노란색.
 - 컷: 말이 2초를 넘으면 같은 클립의 다른 부분으로 한 번 더 끊어 1~2초마다 화면이 바뀐다.
 - 화면: 컷마다 천천히 다가가는 줌, 키워드가 나오는 컷은 빠르게 확 당기는 줌.
@@ -233,6 +235,111 @@ def title_sprite(title):
     return img
 
 
+CUTE_FONT = Path(__file__).resolve().parent.parent / "assets" / "fonts" / "Jua-Regular.ttf"  # 동글동글 귀여운 글꼴 (OFL)
+CREAM, RED, INK = (255, 248, 230, 255), (232, 52, 62, 255), (22, 22, 22, 255)
+
+
+def _cute(size):
+    return ImageFont.truetype(str(CUTE_FONT), size) if CUTE_FONT.exists() else _font(size)
+
+
+def sticker_sprite(title):
+    """스티커 제목 (사용자가 좋아한 김밥 쇼츠 스타일): 크림색 둥근 바탕 + 흰 테두리, 귀여운 글꼴,
+    앞부분은 검정·마지막 단어는 빨강, 양옆에 반짝 선과 하트."""
+    words = title.split()
+    head, tail = (" ".join(words[:-1]) + " ", words[-1]) if len(words) > 1 else ("", title)
+    fs = int(W * 0.105)
+    while _cute(fs).getlength(head + tail) > W * 0.72 and fs > 40:
+        fs -= 4
+    f = _cute(fs)
+    sw = max(4, fs // 9)
+    tw = f.getlength(head + tail)
+    bw, bh = int(tw + fs * 0.9), int(fs * 1.45)
+    w, h = W, bh + 40
+    img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    shadow = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    x0, y0 = (w - bw) // 2, 20
+    ImageDraw.Draw(shadow).rounded_rectangle((x0, y0 + 10, x0 + bw, y0 + bh + 10), radius=bh // 2, fill=(0, 0, 0, 110))
+    img = Image.alpha_composite(img, shadow.filter(ImageFilter.GaussianBlur(10)))
+    d = ImageDraw.Draw(img)
+    d.rounded_rectangle((x0, y0, x0 + bw, y0 + bh), radius=bh // 2, fill=CREAM, outline=(255, 255, 255, 255),
+                        width=sw)
+    tx, ty = (w - tw) / 2, y0 + (bh - fs * 1.12) / 2
+    d.text((tx, ty), head, font=f, fill=INK, stroke_width=max(2, sw // 2), stroke_fill=(255, 255, 255, 255))
+    d.text((tx + f.getlength(head), ty), tail, font=f, fill=RED, stroke_width=max(2, sw // 2),
+           stroke_fill=(255, 255, 255, 255))
+    # 반짝 선 (양옆 세 줄씩)
+    lw = max(5, fs // 12)
+    for side in (-1, 1):
+        cx = x0 - fs * 0.25 if side < 0 else x0 + bw + fs * 0.25
+        cy = y0 + bh / 2
+        for ang in (-35, 0, 35):
+            v = np.array([np.cos(np.radians(ang)), np.sin(np.radians(ang))]) * side
+            p1, p2 = (cx + v[0] * fs * 0.05, cy + v[1] * fs * 0.4), (cx + v[0] * fs * 0.45, cy + v[1] * fs * 0.62)
+            d.line((p1, p2), fill=(255, 255, 255, 255), width=lw + 6)
+            d.line((p1, p2), fill=INK, width=lw)
+    # 왼쪽 위 작은 하트
+    r = fs * 0.2
+    hx, hy = x0 + fs * 0.15, y0 - r * 0.2
+    d.ellipse((hx - r, hy - r * 0.6, hx, hy + r * 0.4), fill=RED)
+    d.ellipse((hx, hy - r * 0.6, hx + r, hy + r * 0.4), fill=RED)
+    d.polygon([(hx - r * 0.95, hy), (hx + r * 0.95, hy), (hx, hy + r * 1.1)], fill=RED)
+    return img
+
+
+def _thumb(clip, size):
+    """순서 띠의 동그란 사진: 클립과 같은 이름의 .png가 있으면 그걸, 없으면 클립 첫 화면."""
+    clip = Path(clip)
+    src = clip.with_suffix(".png")
+    if not src.exists():
+        src = clip.with_suffix(".thumb.jpg")
+        if not src.exists():
+            run(["-ss", "0.3", "-i", str(clip), "-frames:v", "1", str(src)])
+    im = Image.open(src).convert("RGB")
+    s = min(im.size)
+    im = im.crop(((im.width - s) // 2, (im.height - s) // 2, (im.width + s) // 2, (im.height + s) // 2))
+    im = im.resize((size, size), Image.LANCZOS)
+    mask = Image.new("L", (size, size), 0)
+    ImageDraw.Draw(mask).ellipse((0, 0, size - 1, size - 1), fill=255)
+    out = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    out.paste(im, (0, 0), mask)
+    return out
+
+
+def order_sprite(steps, current=None):
+    """조리 순서 띠: 동그란 사진 + 이름을 화살표로 이어서 보여 준다. 지금 단계는 빨간 테두리로 크게."""
+    n = len(steps)
+    cell = W * 0.94 / n
+    size = int(min(cell * 0.78, W * 0.17))
+    fs = int(min(W * 0.042, cell * 0.24))
+    f = _cute(fs)
+    h = int(size * 1.15 + fs * 1.6 + 16)
+    img = Image.new("RGBA", (W, h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    for i, (clip, label) in enumerate(steps):
+        cx = W * 0.03 + cell * (i + 0.5)
+        big = i == current
+        s = int(size * (1.12 if big else 0.92))
+        y = 8 + (size * 1.12 - s) / 2
+        ring = max(5, s // 18)
+        d.ellipse((cx - s / 2 - ring, y - ring, cx + s / 2 + ring, y + s + ring),
+                  fill=RED if big else (255, 255, 255, 255))
+        img.alpha_composite(_thumb(clip, s), (int(cx - s / 2), int(y)))
+        lw = f.getlength(label)
+        ly = 8 + size * 1.12 + fs * 0.25
+        pad = fs * 0.35
+        d.rounded_rectangle((cx - lw / 2 - pad, ly - pad * 0.4, cx + lw / 2 + pad, ly + fs * 1.15 + pad * 0.2),
+                            radius=fs // 2, fill=RED if big else CREAM)
+        d.text((cx - lw / 2, ly), label, font=f, fill=(255, 255, 255, 255) if big else INK)
+        if i < n - 1:  # 다음 단계로 가는 화살표
+            ax, ay, al = cx + cell * 0.5, 8 + size * 0.56, cell * 0.11
+            d.line((ax - al, ay, ax + al * 0.6, ay), fill=(255, 255, 255, 255), width=12)
+            d.polygon([(ax + al, ay), (ax + al * 0.2, ay - al * 0.6), (ax + al * 0.2, ay + al * 0.6)],
+                      fill=(255, 255, 255, 255), outline=INK)
+            d.line((ax - al, ay, ax + al * 0.6, ay), fill=INK, width=6)
+    return img
+
+
 def step_sprite(n):
     """교육용 템플릿의 단계 표시: 노란 알약 모양에 'STEP n'."""
     fs = int(W * 0.042)
@@ -421,6 +528,8 @@ def make_short(clips, script, out, work, keyword=None, voice="여성", rate="+10
     max_shot = float(header("컷길이") or MAX_SHOT)
     loop = (header("루프") or "").strip() in ("켬", "on", "예", "1")
     natural = (header("자연") or "").strip() in ("켬", "on", "예", "1")
+    sticker = (header("스티커") or "").strip() in ("켬", "on", "예", "1")
+    order = header("순서")  # "a.mp4=씻기, b.mp4=볶기, …" → 과정 줄마다 위쪽에 조리 순서 띠
     keyword, lines = parse_script(script, keyword)
     step = 0
     for l in lines:
@@ -429,6 +538,15 @@ def make_short(clips, script, out, work, keyword=None, voice="여성", rate="+10
             step += 1
             l["step"] = step
     clips = assign_clips(lines, [Path(c) for c in clips])
+    order_steps = []
+    if order:
+        by_name = {Path(c).name: Path(c) for clist in clips for c in clist}
+        for item in order.split(","):
+            name, _, label = item.partition("=")
+            name = name.strip()
+            if name not in by_name:
+                raise UserError(f"'순서:'에 적은 클립 '{name}'이 대본에 없어요.")
+            order_steps.append((by_name[name], label.strip() or Path(name).stem))
     print(f"대본 {len(lines)}줄 · 키워드 '{keyword or '없음'}' · 목소리 {voice}")
 
     # 1) 줄마다 목소리를 만들고 길이를 정한다
@@ -489,10 +607,18 @@ def make_short(clips, script, out, work, keyword=None, voice="여성", rate="+10
         shot_start = sum(x["dur"] for x in shots[:j])
         overlays = []
         line = lines[s["line"]]
-        if title:  # 교육용 템플릿: 제목 띠는 영상 내내 맨 위에
+        if title:  # 교육용 템플릿: 제목 띠(또는 스티커 제목)는 영상 내내 맨 위에
             png = work / "title.png"
-            title_sprite(title).save(png)
-            overlays.append((png, 0, s["dur"], H * 0.10))
+            (sticker_sprite if sticker else title_sprite)(title).save(png)
+            overlays.append((png, 0, s["dur"], H * (0.105 if sticker else 0.10)))
+        if order_steps and line["step"]:
+            # 과정 줄에서 지금까지 나온 가장 뒤 단계를 빨갛게 (후킹 줄 화면은 세지 않고, 뒤로 돌아가지 않게)
+            names = [c.name for c, _ in order_steps]
+            seen = [x["clip"].name for x in shots[:j + 1] if lines[x["line"]]["step"]]
+            cur = max((names.index(n) for n in seen if n in names), default=None)
+            png = work / f"order_{cur}.png"
+            order_sprite(order_steps, cur).save(png)
+            overlays.append((png, 0, s["dur"], H * 0.225))
         if badge:
             png = work / "badge.png"
             badge_sprite(badge).save(png)
