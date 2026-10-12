@@ -36,8 +36,11 @@ from .subtitles import FONT_CANDIDATES, write_srt
 W, H, FPS = 1080, 1920, 30
 VIDEO_EXTS = {".mp4", ".mov", ".m4v", ".mkv", ".avi", ".webm"}
 VOICES = {"여성": "ko-KR-SunHiNeural", "남성": "ko-KR-InJoonNeural",
-          "쇼츠여성": "openai:coral", "OpenAI여성": "openai:nova", "OpenAI남성": "openai:onyx"}
+          "쇼츠여성": "openai:coral", "또렷여성": "openai:shimmer", "OpenAI여성": "openai:nova", "OpenAI남성": "openai:onyx"}
 OPENAI_TTS_MODEL = os.environ.get("OPENAI_TTS_MODEL", "gpt-4o-mini-tts")
+OPENAI_TTS_STYLES = {  # 목소리별 말투 지시 (없으면 OPENAI_TTS_STYLE)
+    "shimmer": "20대 한국 여성 유튜버처럼 밝고 친근하게, 또박또박 빠르게 말해 주세요. 문장 사이를 길게 쉬지 마세요.",
+}
 OPENAI_TTS_STYLE = ("한국 유튜브 쇼츠에서 흔히 들리는 AI 성우 톤으로 말해 주세요. 20대 여성, 하이톤, 아주 밝고 경쾌하게, "
                     "빠른 속도로, 끝을 살짝 올리며 리듬감 있게. 아나운서처럼 딱딱하면 안 되고 문장 사이를 길게 쉬지 마세요.")
 DEFAULT_KEYWORDS = ("촉촉", "바삭", "탱글", "쫀득")
@@ -245,7 +248,7 @@ def _openai_tts(text, voice, rate, out_path):
     raw = Path(out_path).with_suffix(".raw.mp3")
     try:
         with client.audio.speech.with_streaming_response.create(
-                model=OPENAI_TTS_MODEL, voice=voice, input=text, instructions=OPENAI_TTS_STYLE,
+                model=OPENAI_TTS_MODEL, voice=voice, input=text, instructions=OPENAI_TTS_STYLES.get(voice, OPENAI_TTS_STYLE),
                 response_format="mp3") as r:
             r.stream_to_file(raw)
     except openai.OpenAIError as e:
