@@ -11,7 +11,9 @@
 - 클립은 이름 순서대로 줄에 하나씩 붙는다. "파일이름 | 자막"처럼 쓰면 그 클립을 쓴다.
 - 자막: 화면 가운데보다 살짝 아래, 흰 글자 + 검은 테두리, 한 줄 12자 이내, 키워드는 노란색.
 - 컷: 말이 2초를 넘으면 같은 클립의 다른 부분으로 한 번 더 끊어 1~2초마다 화면이 바뀐다.
-- 소리: AI 목소리(edge-tts, 무료) + 클립의 실제 소리(작게) + 배경음악(있으면, 더 작게) → -14 LUFS.
+- 화면: 컷마다 천천히 다가가는 줌, 키워드가 나오는 컷은 빠르게 확 당기는 줌.
+- 소리: AI 목소리(edge-tts, 무료, 앞뒤 무음은 잘라 빠르게) + 클립의 실제 소리(작게) + 배경음악(있으면, 더 작게)
+  + 컷마다 작은 '휙', 키워드에 '뿅' 효과음 → -14 LUFS.
 """
 import asyncio
 import os
@@ -24,6 +26,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from . import jobctl
 from .llm import UserError
+from .effects import _sfx
 from .media import FFMPEG, SR, probe, run, write_wav
 from .subtitles import FONT_CANDIDATES, write_srt
 
@@ -34,6 +37,9 @@ DEFAULT_KEYWORDS = ("촉촉", "바삭", "탱글", "쫀득")
 MAX_CHARS = 12        # 자막 한 줄 최대 글자 수
 MAX_SHOT = 2.0        # 한 화면이 이보다 길면 같은 클립의 다른 부분으로 한 번 더 끊는다
 MIN_SHOT = 1.0
+GAP = 0.08            # 줄 사이 숨 고르기 (초). 길면 말이 늘어져 보인다
+ZOOM = 0.06           # 컷마다 천천히 다가가는 정도 (6%)
+PUNCH = 0.18          # 키워드 컷에서 확 당기는 정도 (18%, 0.3초 동안)
 SUB_CY = 0.60         # 자막 중심 높이 (화면 높이 비율, 가운데보다 살짝 아래)
 YELLOW = (255, 214, 10, 255)
 FONTS = FONT_CANDIDATES + ["/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
@@ -70,7 +76,11 @@ def parse_script(text, keyword=None):
 
 
 def wrap(text, max_chars=MAX_CHARS):
-    """띄어쓰기 기준으로 한 줄 max_chars 이내로 나눈다. 너무 긴 단어는 글자 단위로 자른다."""
+    """한 줄 max_chars 이내로 나눈다. "?" "!" "." 뒤에서는 꼭 줄을 바꾸고, 나머지는 띄어쓰기 기준.
+    너무 긴 단어는 글자 단위로 자른다."""
+    sentences = [x for x in re.split(r"(?<=[?!.])\s+", text.strip()) if x]
+    if len(sentences) > 1:
+        return [row for x in sentences for row in wrap(x, max_chars)]
     out, cur = [], ""
     for word in text.split():
         while len(word) > max_chars:
@@ -153,13 +163,17 @@ def tts(text, voice, rate, out_path):
         raise UserError("AI 목소리 모듈이 없습니다. 명령창에서 'pip install edge-tts'를 실행해 주세요.") from None
     proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
     comm = edge_tts.Communicate(text, VOICES.get(voice, voice), rate=rate, proxy=proxy)
-    for attempt in range(3):
+    for attempt in range(4):
         try:
             asyncio.run(comm.save(str(out_path)))
-            return
         except Exception as e:  # 일시적인 연결 오류는 다시 시도
-            if attempt == 2:
+            if attempt == 3:
                 raise UserError(f"AI 목소리를 만들지 못했습니다 (인터넷 연결 확인): {type(e).__name__}") from None
+            continue
+        # 가끔 말이 중간에 끊긴 파일이 온다 → 글자 수에 비해 너무 짧으면 다시 받는다
+        n_chars = len(re.sub(r"[\s\W]", "", text))
+        if len(decode(out_path)) / SR >= 0.07 * n_chars or attempt == 3:
+            return
 
 
 def decode(path, start=0.0, dur=None):
@@ -175,6 +189,29 @@ def decode(path, start=0.0, dur=None):
     return a
 
 
+def trim_silence(a, db=-42.0, keep=0.03, max_pause=0.18):
+    """AI 목소리 앞뒤 무음을 잘라내고, 문장 사이 긴 쉼("?" "!" 뒤 0.5초 넘게)은 max_pause초로 줄인다."""
+    if not len(a):
+        return a
+    loud = np.abs(a).max(axis=1) > 10 ** (db / 20)
+    idx = np.flatnonzero(loud)
+    if not len(idx):
+        return a
+    k = int(keep * SR)
+    a = a[max(0, idx[0] - k):idx[-1] + k]
+    idx = np.flatnonzero(np.abs(a).max(axis=1) > 10 ** (db / 20))
+    gaps = np.flatnonzero(np.diff(idx) > max_pause * SR)
+    if not len(gaps):
+        return a
+    parts, prev = [], 0
+    half = int(max_pause * SR / 2)
+    for g in gaps:  # 쉼의 앞쪽 절반, 뒤쪽 절반만 남긴다
+        parts.append(a[prev:idx[g] + half])
+        prev = idx[g + 1] - half
+    parts.append(a[prev:])
+    return np.vstack(parts)
+
+
 def fade(a, sec=0.03):
     n = min(int(sec * SR), len(a) // 2)
     if n > 0:
@@ -182,6 +219,14 @@ def fade(a, sec=0.03):
         a[:n] *= ramp
         a[-n:] *= ramp[::-1]
     return a
+
+
+def add_sfx(mix, kind, at, vol):
+    s = _sfx(kind)
+    a = max(0, int(at * SR))
+    b = min(len(mix), a + len(s))
+    if b > a:
+        mix[a:b] += s[:b - a, None].astype(np.float32) * vol
 
 
 # ---------------------------------------------------------------- 만들기
@@ -226,8 +271,8 @@ def make_short(clips, script, out, work, keyword=None, voice="여성", rate="+10
         if voice != "없음":
             mp3 = work / f"voice_{i:02d}.mp3"
             tts(l["text"], voice, rate, mp3)
-            a = decode(mp3)
-            dur = max(MIN_SHOT, len(a) / SR + 0.12)
+            a = trim_silence(decode(mp3))
+            dur = max(MIN_SHOT, len(a) / SR + GAP)
         else:
             a = np.zeros((0, 2), np.float32)
             dur = max(1.2, len(l["text"]) * 0.17 + 0.4)  # 읽기 좋은 시간
@@ -272,8 +317,15 @@ def make_short(clips, script, out, work, keyword=None, voice="여성", rate="+10
                 overlays.append((png, a - shot_start, b - shot_start))
         seg = work / f"shot_{j:02d}.mp4"
         inputs = ["-ss", f"{s['start']:.3f}", "-i", str(s["clip"])]
+        n = max(1, round(s["dur"] * FPS))
+        if keyword and keyword in lines[s["line"]]["text"] and s is next(x for x in shots if x["line"] == s["line"]):
+            pn = round(0.3 * FPS)  # 키워드 컷: 0.3초 만에 확 당기고 그대로 유지
+            z = f"1+{PUNCH}*min(on/{pn},1)*(2-min(on/{pn},1))"
+        else:
+            z = f"1+{ZOOM}*on/{n}"
         fc = (f"[0:v]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},setsar=1,fps={FPS},"
-              f"tpad=stop_mode=clone:stop_duration={s['dur']:.3f}[v0]")
+              f"tpad=stop_mode=clone:stop_duration={s['dur']:.3f},"
+              f"zoompan=z='{z}':x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':d=1:s={W}x{H}:fps={FPS}[v0]")
         for k, (png, a, b) in enumerate(overlays):
             inputs += ["-i", str(png)]
             fc += (f";[v{k}][{k + 1}:v]overlay=x=(W-w)/2:y={H * SUB_CY:.0f}-h/2:"
@@ -297,6 +349,15 @@ def make_short(clips, script, out, work, keyword=None, voice="여성", rate="+10
         n = min(len(a), n_total - pos)
         mix[pos:pos + n] += a[:n] * voice_volume
         pos += int(round(dur * SR))
+    # 효과음: 컷이 바뀔 때 작은 '휙', 키워드 자막이 뜰 때 '뿅'
+    pos = 0
+    for j, s in enumerate(shots):
+        if j:
+            add_sfx(mix, "zoom", pos / SR - 0.1, 0.25)
+        pos += int(round(s["dur"] * SR))
+    for c in cues:
+        if keyword and keyword in c["text"]:
+            add_sfx(mix, "pop", c["start"], 0.6)
     if bgm:
         music = decode(bgm)
         if len(music):
