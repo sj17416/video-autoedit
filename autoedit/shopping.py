@@ -14,7 +14,9 @@
 - 클립은 이름 순서대로 줄에 하나씩 붙는다. "파일이름 | 자막"처럼 쓰면 그 클립을 쓴다.
   "a.mp4, b.mp4 | 자막"처럼 여러 개를 적으면 그 줄 동안 화면이 그 클립들로 빠르게 바뀐다.
 - 머리 줄(선택): "제목: …"(교육용 제목 띠 + STEP 번호), "배지: 30초 레시피"(왼쪽 위 배지),
-  "카운트다운: 켬"(오른쪽 위 큰 숫자가 줄마다 하나씩 줄어든다), "컷길이: 0.9"(한 화면 최대 초).
+  "카운트다운: 켬"(오른쪽 위 큰 숫자가 줄마다 하나씩 줄어든다), "컷길이: 0.9"(한 화면 최대 초),
+  "루프: 켬"(끝이 처음으로 끊김 없이 이어지게: 배경음악 이음매를 맞추고 끝에서 줄이지 않는다),
+  "자연: 켬"(하얀 번쩍임 대신 손으로 든 듯한 잔잔한 흔들림 → 덜 딱딱하게).
 - 자막: 화면 가운데보다 살짝 아래, 흰 글자 + 검은 테두리, 한 줄 12자 이내, 키워드는 노란색.
 - 컷: 말이 2초를 넘으면 같은 클립의 다른 부분으로 한 번 더 끊어 1~2초마다 화면이 바뀐다.
 - 화면: 컷마다 천천히 다가가는 줌, 키워드가 나오는 컷은 빠르게 확 당기는 줌.
@@ -47,8 +49,8 @@ OPENAI_TTS_STYLES = {  # 목소리별 말투 지시 (없으면 OPENAI_TTS_STYLE)
 }
 # 자연여성·자연남성(marin·cedar): 사용자가 고른 요리 채널 내레이터 말투 (2026-10-12 비교에서 가장 또렷했음)
 OPENAI_TTS_STYLES["marin"] = OPENAI_TTS_STYLES["cedar"] = (
-    "한국 유튜브 쇼츠 요리 채널 내레이터처럼 말해 주세요. 밝고 생기 있고 자신감 있게, 빠른 템포로 리듬감 있게. "
-    "문장 사이를 쉬지 말고 바로 이어서, 강조할 단어는 살짝 힘주어.")
+    "친한 친구한테 요리 꿀팁 알려 주듯 편하고 자연스럽게, 반말로 수다 떨듯 말해 주세요. 읽는 티가 나면 안 되고, "
+    "놀라거나 신난 감정은 진짜처럼 살려서. 빠른 템포로, 문장 사이를 쉬지 말고 바로 이어서.")
 OPENAI_TTS_STYLE = ("한국 유튜브 쇼츠에서 흔히 들리는 AI 성우 톤으로 말해 주세요. 20대 여성, 하이톤, 아주 밝고 경쾌하게, "
                     "빠른 속도로, 끝을 살짝 올리며 리듬감 있게. 아나운서처럼 딱딱하면 안 되고 문장 사이를 길게 쉬지 마세요.")
 DEFAULT_KEYWORDS = ("촉촉", "바삭", "탱글", "쫀득")
@@ -417,6 +419,8 @@ def make_short(clips, script, out, work, keyword=None, voice="여성", rate="+10
     badge = header("배지")  # 왼쪽 위 배지 (예: 30초 레시피)
     countdown = (header("카운트다운") or "").strip() in ("켬", "on", "예", "1")
     max_shot = float(header("컷길이") or MAX_SHOT)
+    loop = (header("루프") or "").strip() in ("켬", "on", "예", "1")
+    natural = (header("자연") or "").strip() in ("켬", "on", "예", "1")
     keyword, lines = parse_script(script, keyword)
     step = 0
     for l in lines:
@@ -523,6 +527,12 @@ def make_short(clips, script, out, work, keyword=None, voice="여성", rate="+10
         # 단조롭지 않게: 컷마다 카메라 움직임을 돌아가며 바꾼다 (다가가기 / 물러나기 / 왼쪽·오른쪽 흐르기)
         cx, cy_ = "iw/2-iw/zoom/2", "ih/2-ih/zoom/2"
         move = j % len(MOVES) if z is None else -1
+        if natural and z is None:
+            # 손으로 든 듯한 흔들림: 살짝 확대한 채 천천히 다가가며 좌우·위아래로 조금씩 흔들린다
+            z = f"1.10+0.03*on/{n}"
+            cx = f"iw/2-iw/zoom/2+iw*0.012*sin(on/{FPS}*2.1+{j})"
+            cy_ = f"ih/2-ih/zoom/2+ih*0.008*cos(on/{FPS}*1.7+{j * 2})"
+            move = -1
         if move == 1:
             z = f"1+{ZOOM * 2}*(1-on/{n})"
         elif move in (2, 3):
@@ -533,6 +543,8 @@ def make_short(clips, script, out, work, keyword=None, voice="여성", rate="+10
             z = f"1+{ZOOM}*on/{n}"
         # 새 줄이 시작되는 컷은 하얗게 번쩍 (0.08초)
         flash = ",fade=t=in:st=0:d=0.08:color=white" if s is next(x for x in shots if x["line"] == s["line"]) and j else ""
+        if natural:
+            flash = ""
         fc = (f"[0:v]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},setsar=1,fps={FPS},"
               f"tpad=stop_mode=clone:stop_duration={s['dur']:.3f},"
               f"zoompan=z='{z}':x='{cx}':y='{cy_}':d=1:s={W}x{H}:fps={FPS}{flash}[v0]")
@@ -571,9 +583,17 @@ def make_short(clips, script, out, work, keyword=None, voice="여성", rate="+10
         music = decode(bgm)
         if len(music):
             reps = int(np.ceil(n_total / len(music)))
-            music = np.tile(music, (reps, 1))[:n_total]
-            n = min(len(music), int(1.0 * SR))  # 끝 1초는 서서히 줄인다
-            music[-n:] *= np.linspace(1, 0, n, dtype=np.float32)[:, None]
+            k = int(0.5 * SR)  # 루프: 끝 다음에 올 0.5초를 처음에 겹쳐 이음매를 없앤다
+            music = np.tile(music, (reps + 1, 1))[:n_total + k]
+            if loop and len(music) > n_total + k - 1 and n_total > 2 * k:
+                ramp = np.linspace(0, 1, k, dtype=np.float32)[:, None]
+                head = music[:k] * ramp + music[n_total:n_total + k] * (1 - ramp)
+                music = music[:n_total].copy()
+                music[:k] = head
+            else:
+                music = music[:n_total].copy()
+                n = min(len(music), int(1.0 * SR))  # 끝 1초는 서서히 줄인다
+                music[-n:] *= np.linspace(1, 0, n, dtype=np.float32)[:, None]
             mix += music * bgm_volume
     wav = work / "mix.wav"
     write_wav(wav, np.clip(mix * 32767, -32768, 32767).astype(np.int16))
