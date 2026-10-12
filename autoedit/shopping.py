@@ -74,7 +74,8 @@ def parse_script(text, keyword=None):
                 clip, line = left, right
         line = re.sub(r"^\d+\s*[.)]\s*", "", line)  # "1. " 같은 번호는 뺀다
         hook = line.startswith("!")
-        line = line.lstrip("!").strip()
+        nostep = line.startswith("-")  # '-'로 시작하면 교육용 템플릿에서 STEP 번호를 안 붙인다 (결과·리액션 줄)
+        line = line.lstrip("!-").strip()
         card = None
         m = re.search(r"\[\s*카드\s*[:：]\s*(.+?)\]", line)
         if m:
@@ -82,7 +83,7 @@ def parse_script(text, keyword=None):
             card = (title.strip(), sub.strip())
             line = (line[:m.start()] + line[m.end():]).strip()
         if line:
-            lines.append({"clip": clip, "text": line, "hook": hook, "card": card})
+            lines.append({"clip": clip, "text": line, "hook": hook, "card": card, "nostep": nostep})
     if not lines:
         raise UserError("대본이 비어 있습니다. 한 줄에 한 컷씩 자막을 적어 주세요.")
     if not keyword:  # 키워드를 안 적었으면 대본에 나온 식감 단어를 쓴다
@@ -200,6 +201,34 @@ def card_sprite(title, sub):
     d.text((8 + (w - ft.getlength(title)) / 2, y), title, font=ft, fill=(25, 25, 25, 255))
     if sub:
         d.text((8 + (w - fsub.getlength(sub)) / 2, y + fs_t * 1.25), sub, font=fsub, fill=(225, 30, 40, 255))
+    return img
+
+
+def title_sprite(title):
+    """교육용 템플릿의 위쪽 제목 띠: 화면 폭 반투명 검정 띠 + 왼쪽 노란 막대 + 흰 굵은 제목."""
+    fs = int(W * 0.062)
+    if _font(fs).getlength(title) > W * 0.84:
+        fs = int(fs * W * 0.84 / _font(fs).getlength(title))
+    f = _font(fs)
+    h = int(fs * 1.9)
+    img = Image.new("RGBA", (W, h), (12, 12, 14, 200))
+    d = ImageDraw.Draw(img)
+    bar = int(W * 0.018)
+    d.rectangle((int(W * 0.05), int(h * 0.22), int(W * 0.05) + bar, int(h * 0.78)), fill=YELLOW)
+    d.text((int(W * 0.05) + bar * 2, (h - fs * 1.18) / 2), title, font=f, fill=(255, 255, 255, 255))
+    return img
+
+
+def step_sprite(n):
+    """교육용 템플릿의 단계 표시: 노란 알약 모양에 'STEP n'."""
+    fs = int(W * 0.042)
+    f = _font(fs)
+    text = f"STEP {n}"
+    w, h = int(f.getlength(text) + fs * 1.4), int(fs * 1.7)
+    img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    d.rounded_rectangle((0, 0, w - 1, h - 1), radius=h // 2, fill=YELLOW)
+    d.text(((w - f.getlength(text)) / 2, (h - fs * 1.18) / 2), text, font=f, fill=(20, 20, 20, 255))
     return img
 
 
@@ -336,7 +365,18 @@ def make_short(clips, script, out, work, keyword=None, voice="여성", rate="+10
     """클립 목록 + 대본 글 → 완성본 mp4 (+ 같은 이름의 .srt). voice="없음"이면 AI 목소리 없이 클립 소리만."""
     work = Path(work)
     work.mkdir(parents=True, exist_ok=True)
+    # '제목:' 줄이 있으면 교육용 템플릿: 위쪽 제목 띠 + 과정 줄마다 STEP 번호
+    m = re.search(r"^\s*제목\s*[:：]\s*(.+?)\s*$", script, re.M)
+    title = m[1] if m else None
+    if m:
+        script = script[:m.start()] + script[m.end():]
     keyword, lines = parse_script(script, keyword)
+    step = 0
+    for l in lines:
+        l["step"] = None
+        if title and not (l["hook"] or l["card"] or l["nostep"]):
+            step += 1
+            l["step"] = step
     clips = assign_clips(lines, [Path(c) for c in clips])
     print(f"대본 {len(lines)}줄 · 키워드 '{keyword or '없음'}' · 목소리 {voice}")
 
@@ -387,10 +427,18 @@ def make_short(clips, script, out, work, keyword=None, voice="여성", rate="+10
         shot_start = sum(x["dur"] for x in shots[:j])
         overlays = []
         line = lines[s["line"]]
-        if line["card"]:  # 상품 카드는 그 줄 내내 화면 위쪽에
+        if title:  # 교육용 템플릿: 제목 띠는 영상 내내 맨 위에
+            png = work / "title.png"
+            title_sprite(title).save(png)
+            overlays.append((png, 0, s["dur"], H * 0.10))
+        if line["step"]:
+            png = work / f"step_{line['step']:02d}.png"
+            step_sprite(line["step"]).save(png)
+            overlays.append((png, 0, s["dur"], H * (SUB_CY - 0.075)))
+        if line["card"]:  # 상품 카드는 그 줄 내내 화면 위쪽에 (제목 띠가 있으면 그 아래)
             png = work / f"card_{s['line']:02d}.png"
             card_sprite(*line["card"]).save(png)
-            overlays.append((png, 0, s["dur"], H * 0.17))
+            overlays.append((png, 0, s["dur"], H * (0.24 if title else 0.17)))
         for k, c in enumerate(cues):
             a, b = max(c["start"], shot_start), min(c["end"], shot_start + s["dur"])
             if b > a and c["line"] == s["line"]:
@@ -425,7 +473,7 @@ def make_short(clips, script, out, work, keyword=None, voice="여성", rate="+10
         for k, (png, a, b, cy) in enumerate(overlays):
             inputs += ["-i", str(png)]
             # 자막이 0.1초 동안 아래에서 톡 튀어 오르듯 나타난다
-            pop = f"{H * 0.025:.0f}*max(0,1-(t-{a:.3f})/0.1)"
+            pop = f"{H * 0.025:.0f}*max(0,1-(t-{a:.3f})/0.1)" if png.name.startswith("sub_") else "0"
             fc += (f";[v{k}][{k + 1}:v]overlay=x=(W-w)/2:y='{cy:.0f}-h/2+{pop}':"
                    f"enable='between(t,{a:.3f},{b:.3f})'[v{k + 1}]")
         run([*inputs, "-filter_complex", fc, "-map", f"[v{len(overlays)}]", "-t", f"{s['dur']:.3f}", "-an",
