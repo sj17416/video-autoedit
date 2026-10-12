@@ -35,7 +35,11 @@ from .subtitles import FONT_CANDIDATES, write_srt
 
 W, H, FPS = 1080, 1920, 30
 VIDEO_EXTS = {".mp4", ".mov", ".m4v", ".mkv", ".avi", ".webm"}
-VOICES = {"여성": "ko-KR-SunHiNeural", "남성": "ko-KR-InJoonNeural"}
+VOICES = {"여성": "ko-KR-SunHiNeural", "남성": "ko-KR-InJoonNeural",
+          "OpenAI여성": "openai:nova", "OpenAI남성": "openai:onyx"}
+OPENAI_TTS_MODEL = os.environ.get("OPENAI_TTS_MODEL", "gpt-4o-mini-tts")
+OPENAI_TTS_STYLE = ("20대 한국 유튜버처럼 밝고 친근한 말투로, 쇼츠 내레이션답게 빠르고 또박또박 말해 주세요. "
+                    "딱딱한 아나운서 톤은 피하고 문장 사이를 길게 쉬지 마세요.")
 DEFAULT_KEYWORDS = ("촉촉", "바삭", "탱글", "쫀득")
 MAX_CHARS = 12        # 자막 한 줄 최대 글자 수
 MAX_SHOT = 2.0        # 한 화면이 이보다 길면 같은 클립의 다른 부분으로 한 번 더 끊는다
@@ -200,8 +204,33 @@ def card_sprite(title, sub):
 
 # ---------------------------------------------------------------- 목소리
 
+def _openai_tts(text, voice, rate, out_path):
+    """OpenAI 목소리 (OPENAI_API_KEY 필요). 말투는 OPENAI_TTS_STYLE로 지시, 빠르기는 atempo로 맞춘다."""
+    from .env import load_env
+    load_env(Path(__file__).resolve().parent.parent)
+    if not os.environ.get("OPENAI_API_KEY"):
+        raise UserError("OpenAI 목소리를 쓰려면 .env에 OPENAI_API_KEY가 필요합니다.")
+    import openai
+    client = openai.OpenAI(max_retries=4)
+    raw = Path(out_path).with_suffix(".raw.mp3")
+    try:
+        with client.audio.speech.with_streaming_response.create(
+                model=OPENAI_TTS_MODEL, voice=voice, input=text, instructions=OPENAI_TTS_STYLE,
+                response_format="mp3") as r:
+            r.stream_to_file(raw)
+    except openai.OpenAIError as e:
+        raise UserError(f"OpenAI 목소리를 만들지 못했습니다: {type(e).__name__}") from None
+    m = re.fullmatch(r"\s*([+-]\d+)%\s*", rate or "")
+    tempo = min(2.0, max(0.5, 1 + int(m.group(1)) / 100)) if m else 1.0
+    run(["-i", raw, "-filter:a", f"atempo={tempo:.3f}", out_path])
+    raw.unlink(missing_ok=True)
+
+
 def tts(text, voice, rate, out_path):
-    """edge-tts(무료)로 한국어 AI 목소리 mp3를 만든다."""
+    """한국어 AI 목소리 mp3를 만든다. 기본은 edge-tts(무료), 'openai:목소리'면 OpenAI."""
+    name = VOICES.get(voice, voice)
+    if name.startswith("openai:"):
+        return _openai_tts(text, name.split(":", 1)[1], rate, out_path)
     try:
         import edge_tts
     except ImportError:
@@ -209,7 +238,7 @@ def tts(text, voice, rate, out_path):
     proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
     for attempt in range(4):
         try:  # Communicate는 한 번만 쓸 수 있어서 시도마다 새로 만든다
-            comm = edge_tts.Communicate(text, VOICES.get(voice, voice), rate=rate, proxy=proxy)
+            comm = edge_tts.Communicate(text, name, rate=rate, proxy=proxy)
             asyncio.run(comm.save(str(out_path)))
         except Exception as e:  # 일시적인 연결 오류는 다시 시도
             if attempt == 3:
