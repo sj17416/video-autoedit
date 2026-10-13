@@ -21,7 +21,9 @@ All UI text and user-facing messages are **Korean**.
 ## Layout
 - `app.py`: Flask API and a single background job runner. `print` output goes to the UI log via `LogBuffer`, and jobs can be stopped through `autoedit/jobctl.py`.
 - `main.py`: CLI. `launcher.pyw`: Windows launcher; an argument starting with `/` (e.g. `/insta`) is the page the Edge window opens, which is how the two desktop shortcuts differ.
-  `tools/make_icon.py`: regenerates `assets/icon.ico`, `assets/icon_insta.ico` and `web/icon.png`. `tools/make_shortcut.py` (run from `바탕화면 아이콘 만들기.bat`): creates the two desktop shortcuts through PowerShell `WScript.Shell`, asking Windows for the Desktop path so a OneDrive-redirected desktop still works.
+  `tools/make_icon.py`: regenerates `assets/icon.ico`, `icon_insta.ico` (a generic camera glyph in the app's palette — never Instagram's trademarked gradient logo), `icon_setup.ico` and `web/icon.png`.
+  `tools/make_shortcut.py` (also run from `바탕화면 아이콘 만들기.bat`): creates the three desktop shortcuts through PowerShell `WScript.Shell`, asking Windows for the Desktop path so a OneDrive-redirected desktop still works.
+  `설치.bat` → `tools/setup.py`: the first-time installer the user double-clicks (check python, pip install, verify every import in a fresh subprocess with `ctranslate2` first, make icons, make shortcuts, report API-key status). Console-facing tools must stay CP949-encodable: `✔ ✖ —` are **not** in CP949 and raise `UnicodeEncodeError` once stdout is redirected, so use `[완료] [실패] -` instead.
 - `autoedit/pipeline.py`: `Project` class, which owns per-step methods, caching in `projects/<id>/work/`, settings (`DEFAULTS`), the parallel `run_all`, and the reset rules (`RESETS`).
 - `autoedit/media.py`: ffmpeg I/O (imageio-ffmpeg binary), speed presets, a frame reader that uses an ffmpeg `select` filter and a prefetch thread, keyframe-only decoding, and the h264_amf/libx264 encoder choice.
 - `autoedit/cutplan.py`: cut planning and `Timeline` (original ↔ edited time). Cuts are quantized on a grid fps (60→30, 50→25), so 30fps and 60fps outputs share the same cut times.

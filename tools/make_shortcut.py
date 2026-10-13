@@ -1,12 +1,13 @@
-"""바탕화면에 실행 아이콘(바로가기)을 만든다 — Windows 전용.
+"""바탕화면에 실행 아이콘(바로가기)을 만든다 - Windows 전용.
 
-  python tools/make_shortcut.py            바탕화면에 아이콘 2개 만들기
+  python tools/make_shortcut.py            바탕화면에 아이콘 만들기
   python tools/make_shortcut.py --here     이 폴더에도 같이 만들기
   python tools/make_shortcut.py --remove   만든 아이콘 지우기
 
 만드는 아이콘
   영상 자동 편집기      → pythonw launcher.pyw
   인스타 게시물 만들기  → pythonw launcher.pyw /insta
+  설치·복구             → 설치.bat (패키지 다시 설치, 아이콘 다시 만들기)
 
 바탕화면 위치는 OneDrive로 옮겨진 경우도 있어서 Windows에게 직접 물어본다.
 """
@@ -19,9 +20,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 NO_WINDOW = 0x08000000  # CREATE_NO_WINDOW
 
+# page가 있으면 pythonw launcher.pyw <page>, bat이 있으면 그 배치 파일을 실행한다
 SHORTCUTS = [
-    ("영상 자동 편집기", "", "icon.ico", "영상을 넣으면 컷 편집·자막·개인정보 모자이크까지 자동으로 합니다"),
-    ("인스타 게시물 만들기", "/insta", "icon_insta.ico", "내 사진·영상 장면으로 인스타 게시물을 만들고 예약 업로드합니다"),
+    {"name": "영상 자동 편집기", "page": "", "icon": "icon.ico",
+     "desc": "영상을 넣으면 컷 편집·자막·개인정보 모자이크까지 자동으로 합니다"},
+    {"name": "인스타 게시물 만들기", "page": "/insta", "icon": "icon_insta.ico",
+     "desc": "내 사진·영상 장면으로 인스타 게시물을 만들고 예약 업로드합니다"},
+    {"name": "영상 편집기 설치·복구", "bat": "설치.bat", "icon": "icon_setup.ico",
+     "desc": "필요한 프로그램을 다시 설치하고 바탕화면 아이콘을 다시 만듭니다"},
 ]
 
 # 바로가기를 만드는 PowerShell 조각. 값은 따옴표 문제가 없도록 환경 변수로 넘긴다.
@@ -69,20 +75,24 @@ def make(folders):
     if not target.name.lower().startswith("pythonw"):
         print("※ pythonw.exe를 찾지 못해 python.exe로 만듭니다. 실행할 때 검은 창이 같이 뜰 수 있습니다.")
     made = []
-    for name, page, icon, desc in SHORTCUTS:
-        args = f'"{ROOT / "launcher.pyw"}"' + (f" {page}" if page else "")
+    for sc in SHORTCUTS:
+        if "bat" in sc:  # 설치·복구: 진행 상황을 봐야 하므로 검은 창이 있는 배치 파일을 그대로 실행
+            exe, args = ROOT / sc["bat"], ""
+        else:
+            exe, args = target, f'"{ROOT / "launcher.pyw"}"' + (f" {sc['page']}" if sc["page"] else "")
         for folder in folders:
-            run_ps(PS_CREATE, {"SC_DIR": str(folder), "SC_NAME": name, "SC_TARGET": str(target), "SC_ARGS": args,
-                               "SC_WORKDIR": str(ROOT), "SC_ICON": str(ROOT / "assets" / icon), "SC_DESC": desc})
-            made.append(folder / f"{name}.lnk")
+            run_ps(PS_CREATE, {"SC_DIR": str(folder), "SC_NAME": sc["name"], "SC_TARGET": str(exe), "SC_ARGS": args,
+                               "SC_WORKDIR": str(ROOT), "SC_ICON": str(ROOT / "assets" / sc["icon"]),
+                               "SC_DESC": sc["desc"]})
+            made.append(folder / f"{sc['name']}.lnk")
     return made
 
 
 def remove(folders):
     gone = []
-    for name, *_ in SHORTCUTS:
+    for sc in SHORTCUTS:
         for folder in folders:
-            p = folder / f"{name}.lnk"
+            p = folder / f"{sc['name']}.lnk"
             if p.exists():
                 p.unlink()
                 gone.append(p)
@@ -92,7 +102,7 @@ def remove(folders):
 def main():
     if os.name != "nt":
         sys.exit("이 도구는 Windows에서만 쓸 수 있습니다.")
-    for icon in {s[2] for s in SHORTCUTS}:
+    for icon in {s["icon"] for s in SHORTCUTS}:
         if not (ROOT / "assets" / icon).exists():
             print("아이콘을 먼저 만듭니다…")
             subprocess.run([sys.executable, str(ROOT / "tools" / "make_icon.py")], check=True)
@@ -111,7 +121,7 @@ def main():
                 print(f"  - {p}")
             return
         for p in make(folders):
-            print(f"  ✔ {p}")
+            print(f"  [완료] {p}")
     except (RuntimeError, OSError) as e:
         sys.exit(f"바로가기를 만들지 못했습니다: {e}")
     print("\n바탕화면에서 아이콘을 더블클릭하면 실행됩니다.")
