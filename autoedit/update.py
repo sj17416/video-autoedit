@@ -11,6 +11,7 @@
   - 작업(영상 편집·게시물 만들기)이 돌고 있거나 인스타에 올리는 중이면 업데이트하지 않는다.
   - 받은 ZIP이 온전한지(필수 파일이 다 있는지) 먼저 확인하고 나서 덮어쓴다.
 """
+import calendar
 import io
 import json
 import os
@@ -82,9 +83,28 @@ def check():
     msg = (d.get("commit", {}).get("message") or "").splitlines()[0][:120]
     date = d.get("commit", {}).get("committer", {}).get("date", "")
     cur = installed()
-    # 지금 버전을 모르면(ZIP으로 처음 받은 경우) 일단 새 버전으로 본다 — 받아도 같은 파일은 건너뛰므로 손해가 없다
-    return {"new": cur != sha, "sha": sha, "short": sha[:7], "date": date,
+    if cur:
+        new = cur != sha
+    else:
+        # ZIP으로 받은 폴더에는 git도 update.json도 없다. GitHub ZIP은 파일 시각을 커밋 시각
+        # 그대로 담아 주므로, 내 파일이 이 커밋만큼 새것이면 이미 최신이다.
+        # (이게 없으면 방금 받아 설치한 직후에도 '새 버전 있음'이라고 떠서 또 받게 된다.)
+        new = _older_than(date)
+    return {"new": new, "sha": sha, "short": sha[:7], "date": date,
             "message": msg, "installed": cur[:7], "known": bool(cur)}
+
+
+def _older_than(iso_date):
+    """내 프로그램 파일이 주어진 커밋 시각보다 오래됐나. 알 수 없으면 True(새 버전으로 본다)."""
+    if not iso_date:
+        return True
+    try:
+        when = time.strptime(iso_date, "%Y-%m-%dT%H:%M:%SZ")
+    except (TypeError, ValueError):
+        return True
+    commit_at = calendar.timegm(when)
+    mine = max((ROOT / f).stat().st_mtime for f in REQUIRED if (ROOT / f).exists())
+    return mine < commit_at - 60   # 1분은 눈감아 준다 (파일 시각이 초 단위로 조금씩 어긋날 수 있다)
 
 
 def _save_state(sha, message=""):
