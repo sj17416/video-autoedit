@@ -239,3 +239,9 @@ body { background: #262b40; }
 .cv-pair img { width: 100%; aspect-ratio: 1; object-fit: cover; border: 3px solid var(--ink); border-radius: 12px; background: #ece6d8; display: block; }
 .cv-pair figcaption { margin-top: 6px; font-weight: 800; text-align: center; }
 @media (max-width: 700px) { .cv-pair { grid-template-columns: 1fr; } }
+
+/* 업데이트 단추: 늘 보이고 상태만 바뀐다 */
+.mini-btn.update[data-state="ok"] { background: #ece6d8; color: var(--muted); font-weight: 700; }
+.mini-btn.update[data-state="checking"] { background: #ece6d8; color: var(--muted); font-weight: 700; }
+.mini-btn.update[data-state="off"] { background: #ffe0e0; color: var(--ink); font-weight: 700; }
+.mini-btn.update[data-state="new"] { background: var(--go); font-weight: 800; }
