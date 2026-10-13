@@ -29,6 +29,7 @@ All UI text and user-facing messages are **Korean**.
 - `autoedit/cutplan.py`: cut planning and `Timeline` (original ↔ edited time). Cuts are quantized on a grid fps (60→30, 50→25), so 30fps and 60fps outputs share the same cut times.
 - `autoedit/llm.py`: all Claude calls. It uses `claude-opus-5-5` through `client.beta.messages.stream` with the `server-side-fallback-2026-07-01` beta, `fallbacks="default"`, structured outputs via `output_config.format`, and `UserError` for messages shown to users.
 - `autoedit/imagegen.py`: OpenAI images (`OPENAI_IMAGE_MODEL`, default `gpt-image-1.5`). It draws no text in the image; captions are composited with PIL.
+- `autoedit/retouch.py`: 얼굴 보정(눈·코·턱선·피부)과 나라별 분위기(`MOODS`). YuNet 5점 랜드마크 + `cv2.remap` 변위 맵(국소 bulge / 타원 pinch / lift)이라 생성형 AI를 쓰지 않는다 → **비용 0원**. `instacard.face_edit()`이 `_cover()` 직후, 카드 크기(≈1080px) 픽셀에만 적용한다 (원본 3000px에 걸면 9초, 카드 크기면 0.05초).
 - `autoedit/subtitles.py`, `render.py`, `privacy.py`, `illustrate.py`, `transcribe.py`, `env.py`: as named.
 - `web/`: vanilla HTML/CSS/JS (neo-brutalist cream cards on navy). No build step. `web/insta.*` is the Instagram page (`/insta`).
 - Instagram feature: `autoedit/instacard.py` composes cards locally with PIL (0 cost). `autoedit/insta.py` handles the photo/post store in `insta/` (gitignored), dHash dedupe, frame import from projects, and Claude writing (`llm.write_insta_posts`).

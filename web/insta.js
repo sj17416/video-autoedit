@@ -43,6 +43,12 @@ function localInput(t) {  // datetime-local 입력 값 (이 PC 시간)
   const p = (n) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 }
+const RETOUCH_PRESETS = {
+  off:    { eye: 0, nose: 0, chin: 0, skin: 0, face_bright: 0, mood: 0 },
+  soft:   { eye: 0.45, nose: 0.4, chin: 0.4, skin: 0.35, face_bright: 0.1, mood: 0.6 },
+  strong: { eye: 0.8, nose: 0.75, chin: 0.75, skin: 0.6, face_bright: 0.2, mood: 0.9 },
+};
+
 function el(tag, props = {}, ...kids) {
   const e = document.createElement(tag);
   for (const [k, v] of Object.entries(props)) {
@@ -148,6 +154,10 @@ function renderSettings() {
   }
   for (const sp of $$("[data-show]")) sp.textContent = Number(s[sp.dataset.show]).toFixed(2);
   for (const seg of $$("[data-seg]")) for (const b of $$("button", seg)) b.classList.toggle("on", s[seg.dataset.seg] === b.dataset.v);
+  for (const seg of $$("[data-preset]")) {  // 지금 값과 똑같은 프리셋에만 불을 켠다
+    const now = (p) => Object.entries(p).every(([k, v]) => Math.abs(Number(s[k]) - v) < 0.001);
+    for (const b of $$("button", seg)) b.classList.toggle("on", now(RETOUCH_PRESETS[b.dataset.v] || {}));
+  }
   $("#logoBox").innerHTML = "";
   $("#logoBox").append(S.has_logo ? el("img", { src: `/api/insta/logo?t=${Date.now()}`, alt: "로고" }) : el("span", { class: "muted" }, "로고 없음"));
   $("#logoRemoveBtn").hidden = !S.has_logo;
@@ -605,6 +615,73 @@ async function schedule(mode) {
 }
 $("#scheduleBtn").onclick = () => schedule("auto");
 $("#carouselBtn").onclick = () => schedule("carousel");
+// ── 얼굴 변환 미리보기 ──────────────────────────────────────────────
+for (const seg of $$("[data-preset]")) {
+  for (const b of $$("button", seg)) {
+    b.onclick = async () => {
+      const preset = RETOUCH_PRESETS[b.dataset.v];
+      $$("button", seg).forEach((x) => x.classList.toggle("on", x === b));
+      for (const [k, v] of Object.entries(preset)) {
+        const inp = $(`[data-s="${k}"]`), sh = $(`[data-show="${k}"]`);
+        if (inp) inp.value = v;
+        if (sh) sh.textContent = v.toFixed(2);
+      }
+      for (const [k, v] of Object.entries(preset)) queueSetting(k, v, 0);
+      await flushSettings();
+      if (!$("#cvModal").hidden) drawConvert();
+    };
+  }
+}
+
+let cvList = [], cvAt = 0, cvLang = "";
+function drawConvert() {
+  const pid = cvList[cvAt];
+  if (!pid) return;
+  const t = Date.now();
+  $("#cvBefore").src = `/api/insta/preview/${pid}.jpg?before=1&t=${t}`;
+  const after = $("#cvAfter");
+  after.src = `/api/insta/preview/${pid}.jpg?lang=${encodeURIComponent(cvLang)}&t=${t}`;
+  $("#cvCount").textContent = `${cvAt + 1} / ${cvList.length}`;
+  $("#cvPrev").disabled = cvAt === 0;
+  $("#cvNext").disabled = cvAt >= cvList.length - 1;
+  const s = S.settings;
+  const on = ["eye", "nose", "chin", "skin", "face_bright", "mood"].some((k) => Math.abs(Number(s[k])) > 0.001);
+  $("#cvNote").textContent = on
+    ? "왼쪽 슬라이더를 움직이면 바로 다시 그려집니다. 게시물을 만들 때도 똑같이 적용됩니다."
+    : "지금은 변환이 꺼져 있습니다. 왼쪽 '얼굴 변환'에서 자연스럽게를 눌러 보세요.";
+}
+function openConvert(ids) {
+  cvList = ids;
+  cvAt = 0;
+  const langs = S.settings.langs.length ? S.settings.langs : ["ko"];
+  cvLang = langs.includes(cvLang) ? cvLang : langs[0];
+  const tabs = $("#cvLangs");
+  tabs.innerHTML = "";
+  for (const code of langs) {
+    const b = el("button", { class: code === cvLang ? "on" : "" }, S.langs[code] || code);
+    b.onclick = () => { cvLang = code; openConvert(cvList); };
+    tabs.append(b);
+  }
+  $("#cvModal").hidden = false;
+  drawConvert();
+}
+$("#convertBtn").onclick = () => {
+  const ids = selPhotos.size ? [...selPhotos] : S.photos.map((p) => p.id);
+  if (!ids.length) return toast("먼저 사진을 올려 주세요.");
+  openConvert(ids);
+};
+$("#cvPrev").onclick = () => { if (cvAt > 0) { cvAt--; drawConvert(); } };
+$("#cvNext").onclick = () => { if (cvAt < cvList.length - 1) { cvAt++; drawConvert(); } };
+$("#cvClose").onclick = () => ($("#cvModal").hidden = true);
+$("#cvModal").onclick = (e) => { if (e.target.id === "cvModal") $("#cvModal").hidden = true; };
+// 슬라이더를 움직이면 미리보기도 따라 바뀐다 (저장이 끝난 뒤에 다시 그린다)
+for (const inp of $$('[data-s="eye"],[data-s="nose"],[data-s="chin"],[data-s="skin"],[data-s="face_bright"],[data-s="mood"]')) {
+  inp.addEventListener("input", () => {
+    clearTimeout(inp._cvT);
+    inp._cvT = setTimeout(() => { if (!$("#cvModal").hidden) drawConvert(); }, 400);
+  });
+}
+
 $("#modalClose").onclick = () => ($("#modal").hidden = true);
 $("#modal").onclick = (e) => { if (e.target.id === "modal") $("#modal").hidden = true; };
 

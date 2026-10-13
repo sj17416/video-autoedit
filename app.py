@@ -14,6 +14,7 @@ try:  # ctranslate2(Whisper)가 VC++ 런타임 DLL을 먼저 로드해야 OCR/Op
 except ImportError as e:
     sys.exit(f"Whisper 엔진 로드 실패: {e}")
 
+import contextlib
 import json
 import re
 import threading
@@ -22,9 +23,9 @@ import traceback
 import webbrowser
 from pathlib import Path
 
-from flask import Flask, abort, jsonify, request, send_from_directory
+from flask import Flask, Response, abort, jsonify, request, send_from_directory
 
-from autoedit import env, insta, instacard, instapub, jobctl, llm
+from autoedit import env, insta, instacard, instapub, jobctl, llm, update
 from autoedit.illustrate import REF_EXTS
 from autoedit.pipeline import (PROJECTS, ROOT, STEP_NAMES, STEPS, STYLE_DIR, load_project, new_project_id,
                                output_dir, set_output_dir)
@@ -77,6 +78,40 @@ def handle_user_error(e):
 @app.get("/api/version")
 def version():
     return jsonify(version=VERSION)
+
+
+# ---------------------------------------------------------------- 자동 업데이트
+
+UPDATE = {"checked": 0, "info": None}  # 마지막 확인 결과 (화면이 1초마다 묻더라도 GitHub은 가끔만 부르게)
+
+
+@app.get("/api/update")
+def update_check():
+    """새 버전이 있는지. force=1이면 바로 다시 확인, 아니면 30분 캐시."""
+    now = time.time()
+    if request.args.get("force") or not UPDATE["info"] or now - UPDATE["checked"] > 1800:
+        try:
+            UPDATE["info"], UPDATE["checked"] = update.check(), now
+        except update.UpdateError as e:
+            return jsonify(error=str(e), new=False), 200  # 인터넷이 없어도 앱은 그대로 쓸 수 있어야 한다
+    return jsonify(UPDATE["info"])
+
+
+@app.post("/api/update")
+def update_apply():
+    if instapub.is_publishing():
+        return jsonify(error="인스타에 올리는 중입니다. 끝난 뒤에 업데이트해 주세요."), 409
+
+    def run():
+        result = update.update()
+        UPDATE["info"], UPDATE["checked"] = None, 0
+        if result["updated"] and result["changed"]:
+            print("\n새 버전을 받았습니다. 앱을 껐다 켜면 반영됩니다.")
+            print("(오른쪽 위 '앱 종료' → 바탕화면 아이콘 다시 실행)")
+
+    if not start_job(None, "업데이트", run):
+        return jsonify(error="다른 작업이 실행 중입니다. 끝난 뒤 다시 눌러 주세요."), 409
+    return jsonify(ok=True)
 
 
 @app.post("/api/shutdown")
@@ -413,6 +448,24 @@ def insta_photo_file(pid):
     if not insta.safe_id(pid):
         abort(404)
     return send_from_directory(insta.PHOTOS, f"{pid}.jpg", max_age=3600)
+
+
+@app.get("/api/insta/preview/<pid>.jpg")
+def insta_preview(pid):
+    """변환 미리보기. ?before=1이면 보정 전, 아니면 현재 설정(또는 넘긴 값)으로 보정한 모습."""
+    if not insta.safe_id(pid):
+        abort(404)
+    q = request.args
+    opts = {}
+    for k in instacard.RETOUCH_KEYS:
+        if k in q:
+            with contextlib.suppress(ValueError):
+                opts[k] = float(q[k])
+    data, info = insta.preview(pid, q.get("lang", "ko"), opts, before=q.get("before") == "1")
+    res = Response(data, mimetype="image/jpeg")
+    res.headers["X-Faces"] = str(info.get("found", 0))  # 얼굴을 못 찾으면 화면에서 알려 준다
+    res.headers["Cache-Control"] = "no-store"
+    return res
 
 
 @app.post("/api/insta/frames")

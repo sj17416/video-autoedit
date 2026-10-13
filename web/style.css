@@ -180,3 +180,13 @@ input[type=range] { width: 100%; accent-color: var(--ink); }
   .fine-grid .span2 { grid-column: auto; }
   .topbar { padding: 12px 16px; flex-wrap: wrap; }
 }
+
+/* 새 버전 알림 단추 */
+.pill.update { background: var(--yellow); color: var(--ink); border-color: var(--ink); font-weight: 800; }
+.pill.update:hover { filter: brightness(1.07); background: var(--yellow); }
+
+/* 업데이트 단추: 늘 보이고 상태만 바뀐다 */
+.pill.update[data-state="ok"], .pill.update[data-state="checking"] { background: #ece6d8; color: #6b6354; font-weight: 700; }
+.pill.update[data-state="ok"]:hover, .pill.update[data-state="checking"]:hover { background: #ece6d8; }
+.pill.update[data-state="off"] { background: #ffe0e0; color: var(--ink); font-weight: 700; }
+.pill.update[data-state="off"]:hover { background: #ffe0e0; }

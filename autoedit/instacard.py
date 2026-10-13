@@ -25,7 +25,15 @@ CARD_DEFAULTS = {
     "upper": True,         # 영어·유럽어 제목을 대문자로
     "enhance": True,       # 사진 자동 보정 (대비·채도·선명도 살짝)
     "logo_pos": "center",  # left / center / right
+    # 얼굴 보정 (0 = 끔). 전부 이 PC에서 계산만 하므로 비용 0원 — autoedit/retouch.py
+    "eye": 0.0,            # 눈 크게
+    "nose": 0.0,           # 코 날렵하게
+    "chin": 0.0,           # 턱선·목살
+    "skin": 0.0,           # 피부 보정
+    "face_bright": 0.0,    # 얼굴 밝기 (-1~1)
+    "mood": 0.0,           # 나라별 분위기 세기 (색감·밝기·구도)
 }
+RETOUCH_KEYS = ("eye", "nose", "chin", "skin", "face_bright", "mood")
 
 # ---------------------------------------------------------------- 폰트 (Windows 기본 폰트 → 리눅스 테스트용 Noto)
 FONT_DIRS = [Path("C:/Windows/Fonts"), Path.home() / "AppData/Local/Microsoft/Windows/Fonts",
@@ -262,6 +270,32 @@ def _brand_layer(W, H, logo, brand, pos):
 
 # ---------------------------------------------------------------- 카드 합성
 
+def face_edit(img, lang="ko", opts=None):
+    """카드에 쓸 사진에 얼굴 보정 + 나라별 분위기를 입힌다 (PIL RGB → PIL RGB).
+
+    전부 이 PC에서 numpy/OpenCV 계산만 하므로 추가 비용은 0원이다.
+    값이 전부 0이면 원본을 그대로 돌려준다. 카드 크기로 자른 뒤에 부르는 게 빠르다.
+    """
+    o = {**CARD_DEFAULTS, **(opts or {})}
+    rt = {k: float(o.get(k, 0.0)) for k in ("eye", "nose", "chin", "skin")}
+    rt["bright"] = float(o.get("face_bright", 0.0))
+    md = min(1.0, max(0.0, float(o.get("mood", 0.0))))
+    if not any(abs(v) > 0.001 for v in rt.values()) and md <= 0.001:
+        return img, {"found": 0, "applied": False, "mood": False}
+
+    from . import retouch  # cv2를 쓰므로 필요할 때만 불러온다
+
+    bgr = np.asarray(img.convert("RGB"))[:, :, ::-1].copy()
+    info = {"found": 0, "applied": False, "mood": False}
+    if any(abs(v) > 0.001 for v in rt.values()):
+        bgr, got = retouch.retouch(bgr, rt)
+        info.update(got)
+    if md > 0.001:
+        bgr = retouch.mood(bgr, lang, md)
+        info["mood"] = True
+    return Image.fromarray(bgr[:, :, ::-1]), info
+
+
 def compose(photo, title, lang="ko", ratio="1:1", logo=None, brand="", opts=None):
     """사진 + 제목 → 인스타 카드 (PIL RGB 이미지).
 
@@ -277,7 +311,8 @@ def compose(photo, title, lang="ko", ratio="1:1", logo=None, brand="", opts=None
     overlap = int(H * 0.12)
     img = enhance(photo) if o["enhance"] else photo
     canvas = Image.new("RGB", (W, H), (0, 0, 0))
-    canvas.paste(_cover(img, W, ph + overlap, _focus_y(photo)), (0, 0))
+    shot, _ = face_edit(_cover(img, W, ph + overlap, _focus_y(photo)), lang, o)
+    canvas.paste(shot, (0, 0))
 
     # 그라데이션: 사진 아래쪽부터 검게. 진하기가 높을수록 더 위에서부터, 더 어둡게
     g_top = max(0, ph - int(H * (0.12 + 0.30 * grad)))

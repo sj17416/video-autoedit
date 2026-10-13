@@ -123,6 +123,7 @@ body { background: #262b40; }
 .mini-btn:hover:not(:disabled) { background: #fffdf5; }
 .mini-btn:disabled { opacity: .45; cursor: not-allowed; }
 .mini-btn.go { background: var(--go); }
+.mini-btn.update { background: var(--go); font-weight: 800; }
 .mini-btn.danger { color: var(--danger); }
 .runbar .status { margin-left: auto; }
 
@@ -228,3 +229,19 @@ body { background: #262b40; }
   .qitem img { width: 48px; height: 48px; }
   .qitem .btns { grid-column: 1 / -1; justify-content: flex-start; }
 }
+
+/* 얼굴 변환 */
+.free { font-size: 11px; font-weight: 800; border: 2px solid var(--ink); border-radius: 999px; padding: 0 7px; background: var(--green); vertical-align: 2px; }
+.modal-body.wide { max-width: 1000px; }
+.cv-h { margin: 0 0 10px; font-size: 19px; }
+.cv-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.cv-pair figure { margin: 0; }
+.cv-pair img { width: 100%; aspect-ratio: 1; object-fit: cover; border: 3px solid var(--ink); border-radius: 12px; background: #ece6d8; display: block; }
+.cv-pair figcaption { margin-top: 6px; font-weight: 800; text-align: center; }
+@media (max-width: 700px) { .cv-pair { grid-template-columns: 1fr; } }
+
+/* 업데이트 단추: 늘 보이고 상태만 바뀐다 */
+.mini-btn.update[data-state="ok"] { background: #ece6d8; color: var(--muted); font-weight: 700; }
+.mini-btn.update[data-state="checking"] { background: #ece6d8; color: var(--muted); font-weight: 700; }
+.mini-btn.update[data-state="off"] { background: #ffe0e0; color: var(--ink); font-weight: 700; }
+.mini-btn.update[data-state="new"] { background: var(--go); font-weight: 800; }

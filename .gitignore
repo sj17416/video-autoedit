@@ -14,6 +14,9 @@ style_refs/*
 # 이 PC의 저장 폴더 경로
 config.json
 logs/
+# 자동 업데이트가 쓰는 것 (현재 버전 기록 · 덮어쓰기 전 백업)
+update.json
+backup/
 *.mp4
 *.mov
 *.mkv
