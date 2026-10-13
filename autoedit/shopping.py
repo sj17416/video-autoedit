@@ -599,6 +599,9 @@ def make_short(clips, script, out, work, keyword=None, voice="여성", rate="+10
             ct += cd
         t += dur
     total_dur = t
+    if loop and len(shots) > 1:
+        # 루프: 마지막 조각은 첫 조각과 같은 장면 → 끝 프레임이 첫 프레임과 똑같아 다시 재생될 때 이어 보인다
+        shots[-1]["clip"], shots[-1]["start"] = shots[0]["clip"], shots[0]["start"]
 
     # 3) 화면 조각마다 세로로 맞추고 자막을 얹어 인코딩
     seg_files = []
@@ -607,6 +610,7 @@ def make_short(clips, script, out, work, keyword=None, voice="여성", rate="+10
         shot_start = sum(x["dur"] for x in shots[:j])
         overlays = []
         line = lines[s["line"]]
+        last = loop and j == len(shots) - 1 and j > 0
         if title:  # 교육용 템플릿: 제목 띠(또는 스티커 제목)는 영상 내내 맨 위에
             png = work / "title.png"
             (sticker_sprite if sticker else title_sprite)(title).save(png)
@@ -634,7 +638,9 @@ def make_short(clips, script, out, work, keyword=None, voice="여성", rate="+10
         if line["card"]:  # 상품 카드는 그 줄 내내 화면 위쪽에 (제목 띠가 있으면 그 아래)
             png = work / f"card_{s['line']:02d}.png"
             card_sprite(*line["card"]).save(png)
-            overlays.append((png, 0, s["dur"], H * (0.24 if title else 0.17)))
+            # 루프의 마지막 조각에서는 끝 0.5초 전에 카드를 내려 첫 화면과 똑같이 끝나게
+            overlays.append((png, 0, s["dur"] - 0.5 if last and s["dur"] > 1 else s["dur"],
+                             H * (0.24 if title else 0.17)))
         for k, c in enumerate(cues):
             a, b = max(c["start"], shot_start), min(c["end"], shot_start + s["dur"])
             if b > a and c["line"] == s["line"]:
@@ -667,6 +673,16 @@ def make_short(clips, script, out, work, keyword=None, voice="여성", rate="+10
             cx = sweep if move == 2 else f"(iw-iw/zoom)-{sweep}"
         elif z is None:
             z = f"1+{ZOOM}*on/{n}"
+        if last:
+            # 첫 조각의 카메라 움직임을 거꾸로 돌려 마지막 프레임이 첫 프레임 위치에 딱 멈추게
+            r = f"(on-{n - 1})"
+            if natural:
+                z = f"1.10+0.03*{r}/{n}"
+                cx = f"iw/2-iw/zoom/2+iw*0.012*sin({r}/{FPS}*2.1)"
+                cy_ = f"ih/2-ih/zoom/2+ih*0.008*cos({r}/{FPS}*1.7)"
+            else:
+                cx, cy_ = "iw/2-iw/zoom/2", "ih/2-ih/zoom/2"
+                z = f"1-{ZOOM}*{r}/{n}"
         # 새 줄이 시작되는 컷은 하얗게 번쩍 (0.08초)
         flash = ",fade=t=in:st=0:d=0.08:color=white" if s is next(x for x in shots if x["line"] == s["line"]) and j else ""
         if natural:
