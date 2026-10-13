@@ -11,14 +11,15 @@
 
 바탕화면 위치는 OneDrive로 옮겨진 경우도 있어서 Windows에게 직접 물어본다.
 """
+import base64
 import os
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-NO_WINDOW = 0x08000000  # CREATE_NO_WINDOW
+NO_WINDOW = 0x08000000                                        # CREATE_NO_WINDOW
+FOLDERID_DESKTOP = "{B4BFCC3A-DB2C-424C-B029-7FE99A87C641}"
 
 # page가 있으면 pythonw launcher.pyw <page>, bat이 있으면 그 배치 파일을 실행한다
 SHORTCUTS = [
@@ -40,34 +41,64 @@ $s.IconLocation = $env:SC_ICON
 $s.Description = $env:SC_DESC
 $s.Save()
 """
-PS_DESKTOP = "[Environment]::GetFolderPath('Desktop')"
-
-
 def run_ps(script, extra_env=None):
-    """PowerShell 실행. 스크립트 파일은 UTF-8 BOM으로 저장해야 한글이 깨지지 않는다."""
-    with tempfile.TemporaryDirectory() as tmp:
-        path = Path(tmp) / "sc.ps1"
-        path.write_text(script, encoding="utf-8-sig")
-        p = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(path)],
-                           capture_output=True, text=True, encoding="utf-8", errors="replace",
-                           env={**os.environ, **(extra_env or {})}, creationflags=NO_WINDOW)
+    """PowerShell 실행.
+
+    -File 대신 -EncodedCommand를 쓴다: 스크립트 '파일'이 아니라서 회사·학교 PC의 스크립트 실행 정책(그룹 정책)에
+    막히지 않고, 따옴표·한글 인코딩 문제도 없다. 출력은 UTF-8로 받도록 스크립트 첫 줄에서 지정한다
+    (Windows PowerShell 5.1은 기본이 CP949라서 그냥 받으면 한글이 깨진다).
+    """
+    full = "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8\n" + script
+    enc = base64.b64encode(full.encode("utf-16-le")).decode()
+    env = {**os.environ, **{k: (v if v != "" else " ") for k, v in (extra_env or {}).items()}}
+    p = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                        "-EncodedCommand", enc], capture_output=True, text=True, encoding="utf-8",
+                       errors="replace", env=env, creationflags=NO_WINDOW)
     if p.returncode != 0:
-        raise RuntimeError((p.stderr or p.stdout).strip()[:500])
+        raise RuntimeError((p.stderr or p.stdout).strip()[:500] or "PowerShell 실행 실패")
     return p.stdout.strip()
 
 
 def pythonw():
-    """콘솔 창 없이 실행하는 pythonw.exe. 없으면 python.exe라도 쓴다."""
+    """콘솔 창 없이 실행하는 pythonw.exe.
+
+    Microsoft Store 파이썬은 설치 폴더 이름에 버전이 들어 있어서 업데이트되면 경로가 바뀐다(바로가기가 깨진다).
+    그래서 버전이 바뀌어도 그대로인 WindowsApps 별칭을 먼저 쓴다.
+    """
     exe = Path(sys.executable)
-    for name in ("pythonw.exe", "pythonw"):
-        cand = exe.with_name(name)
-        if cand.exists():
-            return cand
-    return exe
+    if "windowsapps" in str(exe).lower():
+        alias = Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "WindowsApps" / "pythonw.exe"
+        if alias.exists():
+            return alias
+    cand = exe.with_name("pythonw.exe")
+    return cand if cand.exists() else exe
 
 
 def desktop_dir():
-    return Path(run_ps(PS_DESKTOP).splitlines()[-1].strip())
+    """바탕화면 폴더. OneDrive로 옮겨졌거나 한글 경로여도 제대로 가져온다.
+
+    PowerShell을 거치지 않고 Windows API를 직접 부른다 (글자 깨짐·정책 문제를 아예 피한다).
+    """
+    import ctypes
+    import uuid
+    guid = ctypes.create_string_buffer(uuid.UUID(FOLDERID_DESKTOP).bytes_le, 16)
+    out = ctypes.c_wchar_p()
+    try:
+        ok = ctypes.windll.shell32.SHGetKnownFolderPath(guid, 0, None, ctypes.byref(out)) == 0
+    except OSError:
+        ok = False
+    if ok:
+        path = Path(out.value)
+        ctypes.windll.ole32.CoTaskMemFree(out)
+        if path.is_dir():
+            return path
+    import winreg                                            # API가 실패하면 레지스트리에서
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                        r"Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders") as k:
+        path = Path(winreg.QueryValueEx(k, "Desktop")[0])
+    if not path.is_dir():
+        raise RuntimeError(f"바탕화면 폴더가 없습니다: {path}")
+    return path
 
 
 def make(folders):

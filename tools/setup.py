@@ -95,22 +95,42 @@ def check_python():
     return True
 
 
+def app_running():
+    """앱(웹 서버)이 켜져 있는지. 켜져 있으면 쓰고 있는 파일을 pip가 바꾸지 못한다."""
+    import socket
+    for port in (5000, int(os.environ.get("PORT", 0) or 0)):
+        if not port:
+            continue
+        with socket.socket() as s:
+            s.settimeout(0.3)
+            if s.connect_ex(("127.0.0.1", port)) == 0:
+                return port
+    return 0
+
+
 def install_packages(update=False):
     step(2, "필요한 패키지 설치")
     req = ROOT / "requirements.txt"
     if not req.exists():
         say(f"  [실패] {req.name} 파일이 없습니다. 프로그램 폴더가 온전한지 확인해 주세요.")
         return False
-    if not update and not missing_packages():
-        say("  [완료] 이미 다 설치돼 있습니다. (건너뜀)")
-        return True
-    say("  인터넷에서 받아서 설치합니다. 처음에는 몇 분 걸릴 수 있어요…\n")
+    port = app_running()
+    if port:
+        say(f"  [실패] 앱이 이미 실행 중입니다 (127.0.0.1:{port}).")
+        say("    앱 창 오른쪽 위 '앱 종료'를 누르고, 이 설치 프로그램을 다시 실행해 주세요.")
+        say("    (실행 중에는 쓰고 있는 파일을 바꿀 수 없습니다)")
+        return False
+    # 불러와지는지만 보면 버전이 낮은 패키지를 놓친다 (requirements.txt는 anthropic>=1.11 처럼 최소 버전을 지정).
+    # pip은 이미 맞으면 '이미 설치됨'만 찍고 바로 끝나므로 매번 돌려도 느리지 않다.
+    say("  확인하고 모자란 것만 받습니다. 처음에는 몇 분 걸릴 수 있어요…\n")
     args = [sys.executable, "-m", "pip", "install", "-r", str(req)]
     if update:
         args.insert(4, "--upgrade")
     if not run(args, "pip"):
-        say("\n  [실패] 패키지 설치에 실패했습니다. 인터넷 연결을 확인하고 다시 실행해 주세요.")
-        say("    회사·학교 네트워크라면 방화벽이 막았을 수 있습니다.")
+        say("\n  [실패] 패키지 설치에 실패했습니다. 위의 영어 메시지를 보고 아래를 확인해 주세요.")
+        say("    - 인터넷 연결 (회사·학교 네트워크라면 방화벽이 막았을 수 있습니다)")
+        say("    - 앱이나 다른 파이썬 창이 켜져 있으면 모두 닫고 다시 실행")
+        say(f"    - 파이썬 버전 ({sys.version.split()[0]})이 너무 최신이면 일부 패키지가 아직 지원하지 않습니다")
         return False
     return True
 

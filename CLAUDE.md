@@ -44,6 +44,8 @@ All UI text and user-facing messages are **Korean**.
 - OpenCV here is 5.0, which has no Haar cascades. Face detection uses YuNet (`models/`, auto-downloaded).
 - faster-whisper's PyAV decoding is broken here, so pass a numpy array (`read_wav_mono`).
 - `.bat` files must be **CP949 + CRLF**, and PowerShell scripts need a **UTF-8 BOM**, or the Korean text breaks.
+- Console-facing Python must stay CP949-encodable: `✔ ✖ —` are **not** in CP949, so once stdout is a pipe they raise `UnicodeEncodeError`. Use `[완료] [실패] -` (the web UI is UTF-8 and may keep the symbols).
+- Windows PowerShell 5.1 writes redirected stdout in the **console code page (CP949)**, not UTF-8, so reading it with `encoding="utf-8"` mangles Korean paths. Prefer a stdlib Windows API (`SHGetKnownFolderPath`, `winreg`) over shelling out; when PowerShell is unavoidable, use `-EncodedCommand` (UTF-16LE base64 — also immune to the script-execution policy) with `[Console]::OutputEncoding=[System.Text.Encoding]::UTF8` as the first line.
 - `.env` may contain mistakes (`OPENAI_KEY`, padded spaces). `env.load_env()` normalizes them, so always load env through it.
 - Claude Code's shell sets `ANTHROPIC_BASE_URL`. Unset it (`env -u ANTHROPIC_BASE_URL`) when testing with the user's key,
   and launch the app via `explorer.exe <lnk>` so it gets the user's real environment.
