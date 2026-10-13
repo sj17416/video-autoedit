@@ -24,7 +24,7 @@ from pathlib import Path
 
 from flask import Flask, abort, jsonify, request, send_from_directory
 
-from autoedit import env, jobctl, llm
+from autoedit import env, insta, instacard, instapub, jobctl, llm
 from autoedit.illustrate import REF_EXTS
 from autoedit.pipeline import (PROJECTS, ROOT, STEP_NAMES, STEPS, STYLE_DIR, load_project, new_project_id,
                                output_dir, set_output_dir)
@@ -51,6 +51,29 @@ def handle_error(e):
     return jsonify(error=f"서버 오류: {e}"), 500
 
 
+@app.before_request
+def block_cross_site():
+    """다른 웹사이트가 이 PC의 앱에 몰래 요청을 보내지 못하게 한다 (예: 로고를 바꿔 예약 게시물에 섞기).
+    이 앱 화면에서 보낸 요청과 실행기(브라우저가 아님)만 받는다."""
+    if request.method in ("GET", "HEAD", "OPTIONS"):
+        return None
+    host = request.host.split(":")[0]
+    if host not in ("127.0.0.1", "localhost"):  # DNS 리바인딩 방지
+        return jsonify(error="허용되지 않은 주소입니다."), 403
+    site = request.headers.get("Sec-Fetch-Site")
+    origin = request.headers.get("Origin")
+    if site == "cross-site" or (origin and origin.split("://", 1)[-1] != request.host):
+        return jsonify(error="다른 사이트에서 온 요청은 받지 않습니다."), 403
+    return None
+
+
+@app.errorhandler(instapub.IGError)
+@app.errorhandler(llm.UserError)
+def handle_user_error(e):
+    """사용자에게 보여줄 오류(인스타 API·입력 문제)는 한국어 메시지 그대로."""
+    return jsonify(error=str(e)), 400
+
+
 @app.get("/api/version")
 def version():
     return jsonify(version=VERSION)
@@ -60,7 +83,13 @@ def version():
 def shutdown():
     """앱 종료 (실행기·종료 버튼에서 호출)."""
     jobctl.request()
-    threading.Timer(0.5, lambda: os._exit(0)).start()
+    instapub.request_stop()  # 이 순간부터 새 업로드는 시작하지 않는다
+
+    def bye():
+        time.sleep(0.5)
+        instapub.stop()  # 인스타에 올리는 중이면 끝날 때까지 기다린다 (중간에 끊기면 올라갔는지 알 수 없음)
+        os._exit(0)
+    threading.Thread(target=bye, daemon=True).start()
     return jsonify(ok=True)
 
 
@@ -260,7 +289,8 @@ def open_folder():
 
 @app.get("/api/job")
 def job_status():
-    return jsonify({k: JOB[k] for k in ("running", "project", "label", "error", "started")} | {"log": JOB["log"].text()})
+    return jsonify({k: JOB[k] for k in ("running", "project", "label", "error", "started")}
+                   | {"log": JOB["log"].text(), "publishing": instapub.is_publishing()})
 
 
 @app.post("/api/projects/<pid>/scenes")
@@ -296,6 +326,217 @@ def project_file(pid, name):
     if name == "source":
         return send_from_directory(p.src.parent, p.src.name)
     abort(404)
+
+
+# ---------------------------------------------------------------- 인스타그램 게시물 (web/insta.html)
+
+def insta_job(label, fn):
+    if not start_job(None, label, fn):
+        return jsonify(error="다른 작업이 실행 중입니다. 끝난 뒤 다시 눌러 주세요."), 409
+    return jsonify(ok=True)
+
+
+def insta_post_view(p):
+    return {**p, "can_autopost": insta.can_autopost(p), "lang_name": instacard.LANGS.get(p["lang"], p["lang"])}
+
+
+@app.get("/insta")
+def insta_page():
+    return send_from_directory(ROOT / "web", "insta.html")
+
+
+@app.get("/api/insta/state")
+def insta_state():
+    return jsonify(settings=insta.settings(), has_logo=insta.LOGO.exists(), langs=list(instacard.LANGS.items()),
+                   ratios=list(instacard.RATIOS), photos=insta.photo_list(),
+                   posts=[insta_post_view(p) for p in insta.posts()], llm=llm.available(),
+                   publish=instapub.public_settings(), accounts=instapub.public_accounts(),
+                   queue=instapub.queue_view(), scheduler=instapub.scheduler_status(),
+                   projects=[{"id": d.name, "name": (load_project(d.name).name)}
+                             for d in sorted(PROJECTS.glob("*"), reverse=True)
+                             if (d / "project.json").exists()] if PROJECTS.exists() else [])
+
+
+@app.post("/api/insta/settings")
+def insta_settings():
+    return jsonify(insta.save_settings(request.json or {}))
+
+
+@app.post("/api/insta/logo")
+def insta_logo():
+    f = request.files.get("logo")
+    if not f:
+        return jsonify(error="로고 이미지가 전달되지 않았습니다."), 400
+    try:
+        insta.set_logo(f.read())
+    except Exception as e:
+        return jsonify(error=f"로고 이미지를 읽을 수 없습니다: {e}"), 400
+    return jsonify(ok=True)
+
+
+@app.delete("/api/insta/logo")
+def insta_logo_delete():
+    insta.remove_logo()
+    return jsonify(ok=True)
+
+
+@app.get("/api/insta/logo")
+def insta_logo_get():
+    if not insta.LOGO.exists():
+        abort(404)
+    return send_from_directory(insta.INSTA, insta.LOGO.name, max_age=0)
+
+
+@app.post("/api/insta/photos")
+def insta_add_photos():
+    files = [(f.filename or "photo.jpg", f.read()) for f in request.files.getlist("photos")]
+    added, dup, bad = insta.add_uploads(files)
+    return jsonify(added=added, dup=dup, bad=bad)
+
+
+@app.post("/api/insta/photos/<pid>")
+def insta_update_photo(pid):
+    insta.update_photo(pid, (request.json or {}).get("note", ""))
+    return jsonify(ok=True)
+
+
+@app.delete("/api/insta/photos/<pid>")
+def insta_delete_photo(pid):
+    if not insta.safe_id(pid):
+        abort(404)
+    insta.delete_photo(pid)
+    return jsonify(ok=True)
+
+
+@app.get("/api/insta/photos/<pid>.jpg")
+def insta_photo_file(pid):
+    if not insta.safe_id(pid):
+        abort(404)
+    return send_from_directory(insta.PHOTOS, f"{pid}.jpg", max_age=3600)
+
+
+@app.post("/api/insta/frames")
+def insta_frames():
+    body = request.json or {}
+    p = project(str(body.get("project", "")))
+    count = max(1, min(30, int(body.get("count", 8))))
+    return insta_job("영상에서 장면 가져오기", lambda: insta.import_frames(p, count))
+
+
+@app.post("/api/insta/generate")
+def insta_generate():
+    body = request.json or {}
+    ids, langs, extra = body.get("photos") or [], body.get("langs"), body.get("instruction", "")
+    return insta_job("인스타 게시물 만들기", lambda: insta.generate(ids, langs, extra))
+
+
+@app.post("/api/insta/rerender")
+def insta_rerender():
+    return insta_job("카드 다시 합성", insta.rerender_all)
+
+
+@app.post("/api/insta/posts/<post_id>")
+def insta_update_post(post_id):
+    return jsonify(insta_post_view(insta.update_post(post_id, request.json or {})))
+
+
+@app.post("/api/insta/posts/<post_id>/rewrite")
+def insta_rewrite(post_id):
+    extra = (request.json or {}).get("instruction", "")
+    return insta_job("제목·본문 다시 쓰기", lambda: insta.rewrite(post_id, extra))
+
+
+@app.delete("/api/insta/posts/<post_id>")
+def insta_delete_post(post_id):
+    insta.delete_post(post_id)
+    return jsonify(ok=True)
+
+
+@app.get("/api/insta/cards/<post_id>.jpg")
+def insta_card_file(post_id):
+    if not insta.safe_id(post_id):
+        abort(404)
+    p = insta.get_post(post_id)
+    name = f"{post_id}.jpg"
+    if p and request.args.get("dl") == "1":
+        safe = re.sub(r'[\\/:*?"<>|\[\]\n]', "", p["title"])[:40].strip() or post_id
+        return send_from_directory(insta.CARDS, name, as_attachment=True, download_name=f"{safe}.jpg")
+    return send_from_directory(insta.CARDS, name, max_age=0)
+
+
+@app.post("/api/insta/export")
+def insta_export():
+    folder, n = insta.export(set((request.json or {}).get("posts") or []), output_dir())
+    return jsonify(path=str(folder), count=n)
+
+
+@app.post("/api/insta/open-export")
+def insta_open_export():
+    d = output_dir() / "인스타_게시물"
+    d.mkdir(exist_ok=True)
+    os.startfile(d)
+    return jsonify(ok=True)
+
+
+@app.post("/api/insta/publish-settings")
+def insta_publish_settings():
+    instapub.save_settings(request.json or {})
+    return jsonify(instapub.public_settings())
+
+
+@app.post("/api/insta/accounts")
+def insta_add_account():
+    body = request.json or {}
+    acc = instapub.add_account(body.get("token", ""), {k: v for k, v in body.items() if k != "token"})
+    return jsonify(ok=True, username=acc["username"])
+
+
+@app.post("/api/insta/accounts/<acc_id>")
+def insta_update_account(acc_id):
+    instapub.update_account(acc_id, request.json or {})
+    return jsonify(ok=True)
+
+
+@app.delete("/api/insta/accounts/<acc_id>")
+def insta_delete_account(acc_id):
+    instapub.delete_account(acc_id)
+    return jsonify(ok=True)
+
+
+@app.get("/api/insta/accounts/<acc_id>/check")
+def insta_check_account(acc_id):
+    acc = next((a for a in instapub.accounts() if a["id"] == acc_id), None)
+    if not acc:
+        abort(404)
+    info = instapub.verify_token(acc["token"])
+    lim = instapub.publishing_limit(acc)
+    return jsonify(username=info["username"], account_type=info["account_type"], **lim)
+
+
+@app.post("/api/insta/schedule")
+def insta_schedule():
+    body = request.json or {}
+    n, skipped = instapub.plan(body.get("posts") or [], body.get("mode", "auto"),
+                            body.get("account"), body.get("at"))
+    return jsonify(count=n, skipped=skipped)
+
+
+@app.post("/api/insta/queue/<item_id>/<action>")
+def insta_queue_action(item_id, action):
+    if action == "cancel":
+        instapub.cancel(item_id)
+    elif action == "remove":
+        instapub.remove(item_id)
+    elif action == "now":
+        instapub.publish_now(item_id)
+    elif action == "reschedule":
+        at = (request.json or {}).get("at")
+        if not isinstance(at, (int, float)) or at != at:  # 빈 값·NaN이면 엉뚱한 시각으로 바꾸지 않는다
+            return jsonify(error="올릴 시각이 올바르지 않습니다."), 400
+        instapub.reschedule(item_id, at)
+    else:
+        abort(404)
+    return jsonify(ok=True)
 
 
 # ---------------------------------------------------------------- 그림체 참고 이미지 / API 키
@@ -371,6 +612,7 @@ if __name__ == "__main__":
             stream.reconfigure(errors="replace")
     env.load_env(ROOT)
     PROJECTS.mkdir(exist_ok=True)
+    instapub.start_scheduler()  # 인스타 예약 업로드 (앱이 켜져 있는 동안 30초마다 확인)
     port = int(os.environ.get("PORT", 5000))
     print(f"웹앱 실행 중: http://127.0.0.1:{port}  (이 창을 닫으면 종료됩니다)")
     if "--no-browser" not in sys.argv:

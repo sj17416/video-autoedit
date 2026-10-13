@@ -1,0 +1,119 @@
+/* 인스타 게시물 화면 — style.css(공통 카드·버튼) 위에 얹는 부분 */
+a.pill { text-decoration: none; display: inline-flex; align-items: center; }
+.small { font-size: 13px; font-weight: 600; }
+.field { display: flex; flex-direction: column; gap: 5px; font-weight: 700; font-size: 14px; margin: 0 0 14px; }
+.field small { font-weight: 500; color: var(--muted); font-size: 12.5px; }
+.field b { color: #2e6cf6; }
+.inline-field { flex-direction: row; align-items: center; gap: 10px; }
+.inline-field select { width: auto; flex: 1; min-width: 0; }
+.check-line { display: flex; align-items: center; gap: 8px; font-weight: 600; margin: 0 0 12px; cursor: pointer; }
+.lang-checks { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 6px; }
+.lang-checks label { display: flex; gap: 8px; align-items: center; background: var(--paper); border: 2px solid var(--ink);
+  border-radius: 10px; padding: 7px 10px; font-weight: 700; cursor: pointer; }
+.lang-checks label.on { background: #fbe9a6; }
+
+.seg { display: flex; border: 2.5px solid var(--ink); border-radius: 999px; overflow: hidden; background: var(--paper); }
+.seg button { flex: 1; border: 0; background: transparent; padding: 7px 6px; font: inherit; font-weight: 700; font-size: 13px;
+  cursor: pointer; color: var(--ink); }
+.seg button + button { border-left: 2px solid var(--ink); }
+.seg button.on { background: var(--ink); color: var(--card); }
+
+.logo-row { display: flex; gap: 12px; align-items: center; margin-bottom: 14px; }
+.logo-box { width: 150px; height: 64px; border: 2.5px solid var(--ink); border-radius: 10px; display: grid; place-items: center;
+  overflow: hidden; font-size: 12px; }
+.logo-box img { max-width: 92%; max-height: 52px; }
+.logo-btns { display: flex; flex-direction: column; gap: 6px; }
+
+.account-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+.account { border: 2.5px solid var(--ink); border-radius: 12px; background: var(--paper); padding: 10px 12px; box-shadow: 3px 3px 0 var(--ink);
+  display: flex; flex-direction: column; gap: 7px; font-size: 13px; }
+.account.off { opacity: .55; }
+.account .top { display: flex; align-items: center; gap: 8px; }
+.account .name { font-weight: 800; font-size: 15px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; }
+.account .grid label { display: flex; flex-direction: column; gap: 2px; font-weight: 600; }
+.account input, .account select { border-width: 2px; padding: 3px 7px; font-size: 13px; }
+.account .warn { color: var(--danger); font-weight: 700; }
+.howto { margin-top: 10px; font-size: 13px; }
+.howto summary { cursor: pointer; font-weight: 700; }
+.howto ol { padding-left: 20px; margin: 8px 0; display: flex; flex-direction: column; gap: 6px; }
+.pub-settings { border-top: 2px dashed var(--ink); padding-top: 12px; margin-top: 12px; }
+
+.drop-row { display: grid; grid-template-columns: 1fr 230px; gap: 14px; }
+.side-actions { display: flex; flex-direction: column; gap: 10px; }
+.frames-box { border: 2.5px solid var(--ink); border-radius: 12px; padding: 10px; background: var(--paper); display: flex;
+  flex-direction: column; gap: 7px; font-size: 13px; }
+.frames-box select, .frames-box input { border-width: 2px; padding: 4px 8px; font-size: 13px; }
+.frames-box .inline { display: flex; gap: 8px; align-items: center; font-weight: 600; }
+.frames-box .inline input { width: 70px; }
+
+.photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin: 10px 0 14px; }
+.photo { border: 2.5px solid var(--ink); border-radius: 12px; overflow: hidden; background: var(--paper); box-shadow: 3px 3px 0 var(--ink);
+  display: flex; flex-direction: column; }
+.photo.sel { outline: 4px solid #2e6cf6; outline-offset: 1px; }
+.photo .thumb { position: relative; aspect-ratio: 1; background: #ddd; cursor: pointer; }
+.photo .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.photo .thumb input { position: absolute; top: 6px; left: 6px; width: 20px; height: 20px; }
+.photo .badges { position: absolute; bottom: 5px; left: 5px; right: 5px; display: flex; flex-wrap: wrap; gap: 4px; }
+.badge { font-size: 11px; font-weight: 700; border: 1.5px solid var(--ink); border-radius: 999px; padding: 0 7px; background: #fff; }
+.badge.warn { background: #ffd9a8; }
+.badge.ok { background: var(--green); }
+.photo .meta { padding: 6px; display: flex; flex-direction: column; gap: 4px; }
+.photo .meta input { border-width: 2px; padding: 3px 6px; font-size: 12px; }
+.photo .meta .row { display: flex; justify-content: space-between; align-items: center; gap: 4px; font-size: 11px; color: var(--muted); }
+.photo .meta .row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.photo .meta button { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 16px; padding: 0 2px; }
+.photo .meta button:hover { color: var(--danger); }
+.generate-box { border-top: 2px dashed var(--ink); padding-top: 14px; display: flex; flex-direction: column; gap: 10px; }
+.generate-box .own { margin: 0; }
+.log.short { height: 150px; margin-top: 0; }
+h2 .btn { margin-left: auto; }
+
+.post-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+.post { border: 2.5px solid var(--ink); border-radius: 12px; overflow: hidden; background: var(--paper); box-shadow: 4px 4px 0 var(--ink);
+  display: flex; flex-direction: column; }
+.post.sel { outline: 4px solid #2e6cf6; outline-offset: 1px; }
+.post.dirty { border-color: #2e6cf6; }
+.post-img { position: relative; background: #000; border-bottom: 2.5px solid var(--ink); cursor: zoom-in; }
+.post-img img { width: 100%; display: block; }
+.post-img .sel { position: absolute; top: 8px; left: 8px; background: #fff; border: 2px solid var(--ink); border-radius: 8px; padding: 3px 5px; cursor: pointer; }
+.post-img .sel input { display: block; width: 18px; height: 18px; }
+.lang-badge, .q-badge { position: absolute; top: 8px; right: 8px; font-size: 12px; font-weight: 800; background: var(--yellow);
+  border: 2px solid var(--ink); border-radius: 999px; padding: 0 9px; }
+.q-badge { top: auto; bottom: 8px; background: var(--green); }
+.post-body { padding: 12px; display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
+.post-body label { display: flex; flex-direction: column; gap: 3px; font-weight: 600; }
+.post-body input, .post-body textarea { border-width: 2px; padding: 4px 8px; font-size: 13px; }
+.post-body details summary { cursor: pointer; font-weight: 700; }
+.post-body details label { margin-top: 6px; }
+.post-body .actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.post-body a.btn { text-decoration: none; }
+.risk { background: #ffe1c2; border: 2px solid var(--ink); border-radius: 10px; padding: 7px 9px; display: flex; flex-direction: column; gap: 5px; font-weight: 700; }
+.risk label { flex-direction: row !important; align-items: center; gap: 6px; }
+
+.queue-list { display: flex; flex-direction: column; gap: 8px; }
+.qitem { display: grid; grid-template-columns: 64px 1fr auto; gap: 12px; align-items: center; background: var(--paper);
+  border: 2px solid var(--ink); border-radius: 12px; padding: 8px 10px; }
+.qitem > div { min-width: 0; }  /* 긴 제목이 줄임표로 줄어들게 (좁은 화면 가로 스크롤 방지) */
+.qitem img { width: 64px; height: 64px; object-fit: cover; border-radius: 8px; border: 2px solid var(--ink); }
+.qitem .t { font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qitem .s { font-size: 12.5px; color: var(--muted); }
+.qitem .err { font-size: 12.5px; color: var(--danger); font-weight: 600; }
+.qitem .btns { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.qitem input[type=datetime-local] { border-width: 2px; padding: 3px 6px; font-size: 12px; width: auto; }
+.qstatus { font-size: 12px; font-weight: 800; border: 2px solid var(--ink); border-radius: 999px; padding: 0 9px; background: #ece6d8; }
+.qstatus.scheduled { background: #fff0b3; }
+.qstatus.publishing { background: #cfe0ff; }
+.qstatus.published { background: var(--green); }
+.qstatus.failed { background: #ffc9c9; }
+.modal-body.narrow { max-width: 720px; }
+
+@media (max-width: 1000px) {
+  .drop-row { grid-template-columns: 1fr; }
+  .qitem { grid-template-columns: 48px 1fr; }
+  .qitem img { width: 48px; height: 48px; }
+  .qitem .btns { grid-column: 1 / -1; justify-content: flex-start; }
+}
+
+.toast { white-space: pre-line; }
+.busy [data-act="rewrite"], .busy [data-act="delete"], .busy .photo .meta button { opacity: .35; cursor: not-allowed; }

@@ -26,6 +26,7 @@ h3 { font-size: 14px; margin: 14px 0 8px; }
 .pill { border: 2px solid #f4efe2; background: transparent; color: #f4efe2; border-radius: 999px; padding: 6px 14px;
   cursor: pointer; font: inherit; font-size: 13px; font-weight: 600; max-width: 460px; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; }
+a.pill { text-decoration: none; display: inline-flex; align-items: center; }
 .pill:hover { background: rgba(255,255,255,.08); }
 
 /* ---------- 레이아웃 / 카드 ---------- */

@@ -20,14 +20,22 @@ All UI text and user-facing messages are **Korean**.
 
 ## Layout
 - `app.py`: Flask API and a single background job runner. `print` output goes to the UI log via `LogBuffer`, and jobs can be stopped through `autoedit/jobctl.py`.
-- `main.py`: CLI. `launcher.pyw`: Windows launcher. `tools/make_icon.py`: regenerates `assets/icon.ico` and `web/icon.png`.
+- `main.py`: CLI. `launcher.pyw`: Windows launcher; an argument starting with `/` (e.g. `/insta`) is the page the Edge window opens, which is how the two desktop shortcuts differ.
+  `tools/make_icon.py`: regenerates `assets/icon.ico`, `icon_insta.ico` (a generic camera glyph in the app's palette — never Instagram's trademarked gradient logo), `icon_setup.ico` and `web/icon.png`.
+  `tools/make_shortcut.py` (also run from `바탕화면 아이콘 만들기.bat`): creates the three desktop shortcuts through PowerShell `WScript.Shell`, asking Windows for the Desktop path so a OneDrive-redirected desktop still works.
+  `설치.bat` → `tools/setup.py`: the first-time installer the user double-clicks (check python, pip install, verify every import in a fresh subprocess with `ctranslate2` first, make icons, make shortcuts, report API-key status). Console-facing tools must stay CP949-encodable: `✔ ✖ —` are **not** in CP949 and raise `UnicodeEncodeError` once stdout is redirected, so use `[완료] [실패] -` instead.
 - `autoedit/pipeline.py`: `Project` class, which owns per-step methods, caching in `projects/<id>/work/`, settings (`DEFAULTS`), the parallel `run_all`, and the reset rules (`RESETS`).
 - `autoedit/media.py`: ffmpeg I/O (imageio-ffmpeg binary), speed presets, a frame reader that uses an ffmpeg `select` filter and a prefetch thread, keyframe-only decoding, and the h264_amf/libx264 encoder choice.
 - `autoedit/cutplan.py`: cut planning and `Timeline` (original ↔ edited time). Cuts are quantized on a grid fps (60→30, 50→25), so 30fps and 60fps outputs share the same cut times.
 - `autoedit/llm.py`: all Claude calls. It uses `claude-opus-5-5` through `client.beta.messages.stream` with the `server-side-fallback-2026-07-01` beta, `fallbacks="default"`, structured outputs via `output_config.format`, and `UserError` for messages shown to users.
 - `autoedit/imagegen.py`: OpenAI images (`OPENAI_IMAGE_MODEL`, default `gpt-image-1.5`). It draws no text in the image; captions are composited with PIL.
 - `autoedit/subtitles.py`, `render.py`, `privacy.py`, `illustrate.py`, `transcribe.py`, `env.py`: as named.
-- `web/`: vanilla HTML/CSS/JS (neo-brutalist cream cards on navy). No build step.
+- `web/`: vanilla HTML/CSS/JS (neo-brutalist cream cards on navy). No build step. `web/insta.*` is the Instagram page (`/insta`).
+- Instagram feature: `autoedit/instacard.py` composes cards locally with PIL (0 cost). `autoedit/insta.py` handles the photo/post store in `insta/` (gitignored), dHash dedupe, frame import from projects, and Claude writing (`llm.write_insta_posts`).
+  `autoedit/instapub.py` handles official Instagram API with Instagram Login publishing (graph.instagram.com v25.0), 60-day token refresh,
+  and temp public hosting (litterbox / Cloudinary, because Meta must cURL a public `image_url`). It also runs the queue scheduler thread, which is guarded by the `insta/scheduler.lock` process lock.
+  It only uses the user's own photos (no screenshot reposting: copyright plus Instagram's 2026 originality rules). There are no unofficial login bots. Instagram allows max 5 hashtags.
+  Test publishing against a local mock Graph server (monkeypatch `instapub.API` / `host_image`). Never post to the user's real accounts in tests.
 
 ## Windows / environment gotchas (learned the hard way)
 - **No VC++ runtime on this PC.** The runtime DLLs were copied next to `ctranslate2.dll`. Entry points must
@@ -36,6 +44,8 @@ All UI text and user-facing messages are **Korean**.
 - OpenCV here is 5.0, which has no Haar cascades. Face detection uses YuNet (`models/`, auto-downloaded).
 - faster-whisper's PyAV decoding is broken here, so pass a numpy array (`read_wav_mono`).
 - `.bat` files must be **CP949 + CRLF**, and PowerShell scripts need a **UTF-8 BOM**, or the Korean text breaks.
+- Console-facing Python must stay CP949-encodable: `✔ ✖ —` are **not** in CP949, so once stdout is a pipe they raise `UnicodeEncodeError`. Use `[완료] [실패] -` (the web UI is UTF-8 and may keep the symbols).
+- Windows PowerShell 5.1 writes redirected stdout in the **console code page (CP949)**, not UTF-8, so reading it with `encoding="utf-8"` mangles Korean paths. Prefer a stdlib Windows API (`SHGetKnownFolderPath`, `winreg`) over shelling out; when PowerShell is unavoidable, use `-EncodedCommand` (UTF-16LE base64 — also immune to the script-execution policy) with `[Console]::OutputEncoding=[System.Text.Encoding]::UTF8` as the first line.
 - `.env` may contain mistakes (`OPENAI_KEY`, padded spaces). `env.load_env()` normalizes them, so always load env through it.
 - Claude Code's shell sets `ANTHROPIC_BASE_URL`. Unset it (`env -u ANTHROPIC_BASE_URL`) when testing with the user's key,
   and launch the app via `explorer.exe <lnk>` so it gets the user's real environment.

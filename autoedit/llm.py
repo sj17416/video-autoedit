@@ -338,3 +338,99 @@ def proofread(texts, glossary="", translate=False, tone="normal"):
         around = sorted({j for i in missing for j in range(max(0, i - 2), min(len(texts), i + 3))})
         result.update(request(missing, around))
     return [result.get(i, t) for i, t in enumerate(texts)]
+
+
+# ---------------------------------------------------------------- 인스타그램 게시물 글쓰기
+
+INSTA_LANG_NAMES = {"ko": "Korean", "ja": "Japanese", "en": "English", "fr": "French", "es": "Spanish",
+                    "pt": "Portuguese (Brazil)", "de": "German"}
+
+INSTA_SYSTEM = """You write Instagram image posts for a creator who posts their OWN photos (and frames from their own videos).
+For each attached photo you write, in every requested language, a short hook title that is drawn big on the image,
+and the post caption. Write each language natively, as a top local creator would — never a literal translation of
+another language. Hooks must make people stop scrolling, save and share, using what actually works in that market:
+- Korean: curiosity gap, 반전, concrete numbers, "~하는 법", "이거 모르면 손해", 구어체. Title ≤ 28 characters.
+- Japanese: 「〜すぎる」「知らないと損」「〜した結果」, 体言止め, natural casual polite tone. Title ≤ 30 characters.
+- English: "POV:", "Nobody talks about…", "This is why…", "I didn't expect…", specific numbers. Title ≤ 70 characters.
+- Spanish / Portuguese: warm and emotional, "¿Sabías que…?" / "Você sabia que…?", exclamations. Title ≤ 70 characters.
+- French / German: concise, witty curiosity. Title ≤ 70 characters.
+The title must ADD something beyond describing the picture — a tip, a lesson, a surprising angle, a feeling or a
+mini-story grounded in the photo and the note (Instagram treats purely descriptive overlays as unoriginal).
+Title rules: one line of thought (it is auto-wrapped), no emoji, no hashtags, no quotes around it. Wrap the 1–4 most
+important words in [square brackets] — they are painted in the highlight color. Exactly one bracketed group.
+Caption rules: 3–8 short lines with line breaks, 2–5 fitting emojis, first line continues the hook, end with a question
+or a save/share call to action. No hashtags inside the caption, no links, never mention AI.
+Truthfulness: describe only what is visible in the photo and what the creator's note says. Never invent statistics,
+studies ("research shows…"), prices, dates, names or places that are not given. If the note names the place, use it.
+Never write misleading claims; curiosity is fine, lies are not.
+If a style sample is given, follow its format and tone closely (in every language).
+Hashtags (separate field): only if a count above 0 is requested — that many specific, relevant tags without '#'
+(Instagram allows at most 5; prefer niche tags over generic ones like reels/explore/fyp). Otherwise an empty list.
+
+Reuse check (protects the creator from copyright strikes): look at each photo and set reuse_risk:
+- "screenshot": it is a screenshot of someone else's post/app/website (visible UI, like counts, usernames, captions).
+- "watermark": it carries another creator's or stock agency's watermark/logo/handle.
+- "other": clearly professional media the creator is unlikely to own (movie still, magazine scan, celebrity press photo).
+- "none": looks like the creator's own photo or video frame.
+Explain briefly in Korean in risk_reason (empty when "none")."""
+
+
+def _insta_schema(langs):
+    version = {
+        "type": "object",
+        "properties": {
+            "lang": {"type": "string", "enum": list(langs)},
+            "title": {"type": "string"},
+            "caption": {"type": "string"},
+            "hashtags": {"type": "array", "items": {"type": "string"}},
+        },
+        "required": ["lang", "title", "caption", "hashtags"],
+        "additionalProperties": False,
+    }
+    return {
+        "type": "object",
+        "properties": {"posts": {"type": "array", "items": {
+            "type": "object",
+            "properties": {
+                "photo": {"type": "integer", "description": "photo number as given"},
+                "reuse_risk": {"type": "string", "enum": ["none", "screenshot", "watermark", "other"]},
+                "risk_reason": {"type": "string"},
+                "versions": {"type": "array", "items": version},
+            },
+            "required": ["photo", "reuse_risk", "risk_reason", "versions"],
+            "additionalProperties": False,
+        }}},
+        "required": ["posts"],
+        "additionalProperties": False,
+    }
+
+
+def write_insta_posts(photos, langs, *, topic="", style="", hashtags=0, instruction=""):
+    """사진들(각 {jpeg_b64, note}) → 사진마다 언어별 {title, caption, hashtags} + 재사용 위험 판정.
+
+    반환: {사진번호(0부터): {"reuse_risk", "risk_reason", "versions": {lang: {...}}}}
+    """
+    content = []
+    for i, ph in enumerate(photos):
+        content.append({"type": "text", "text": f"Photo {i}" + (f" — creator's note: {ph['note']}" if ph.get("note") else "")})
+        content.append({"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": ph["jpeg_b64"]}})
+    names = ", ".join(f"{l} ({INSTA_LANG_NAMES[l]})" for l in langs)
+    text = (f"Languages to write for every photo: {names}.\n"
+            f"Account topic: {topic or '(not set — infer from the photos)'}\n"
+            f"Hashtag count per post: {hashtags}\n")
+    if style.strip():
+        text += f"Style sample from the creator (follow its format and tone):\n<sample>\n{style.strip()}\n</sample>\n"
+    if instruction.strip():
+        text += f"Extra request from the creator (in Korean): {instruction.strip()}\n"
+    text += f"Return one entry per photo (photo 0 to {len(photos) - 1}), each with exactly one version per language."
+    content.append({"type": "text", "text": text})
+    out = ask(content, system=INSTA_SYSTEM, schema=_insta_schema(langs), effort="medium")
+    result = {}
+    for p in out["posts"]:
+        if 0 <= p["photo"] < len(photos):
+            result[p["photo"]] = {"reuse_risk": p["reuse_risk"], "risk_reason": p["risk_reason"].strip(),
+                                  "versions": {v["lang"]: {"title": v["title"].strip(), "caption": v["caption"].strip(),
+                                                           "hashtags": [h.lstrip("#").strip() for h in v["hashtags"]
+                                                                        if h.strip()][:hashtags]}
+                                               for v in p["versions"] if v["lang"] in langs}}
+    return result

@@ -3,6 +3,9 @@
 1. 서버가 이미 최신 코드로 떠 있으면 창만 연다.
 2. 예전 코드의 서버가 떠 있으면(작업 중이 아닐 때) 끄고 새로 띄운다.
 3. 앱은 Edge '앱 모드'로 주소창 없는 전용 창에서 열린다.
+
+  pythonw launcher.pyw          → 영상 편집 화면
+  pythonw launcher.pyw /insta   → 인스타 게시물 화면 (바탕화면의 '인스타 게시물' 아이콘)
 """
 import json
 import os
@@ -17,6 +20,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 PORT = int(os.environ.get("PORT", 5000))
 URL = f"http://127.0.0.1:{PORT}"
+# 바로가기가 넘겨 준 화면 경로 (없으면 영상 편집 화면). 예: /insta
+PAGE = next((a for a in sys.argv[1:] if a.startswith("/")), "")
+WINDOW = "1180,980" if PAGE else "1460,940"
 LOG = ROOT / "logs" / "server.log"
 NO_WINDOW = 0x08000000  # CREATE_NO_WINDOW
 EDGE = [Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / "Microsoft/Edge/Application/msedge.exe",
@@ -57,8 +63,13 @@ def pids_on_port():
 
 
 def stop_old_server():
-    request("/api/shutdown", "POST")  # 새 버전 서버는 스스로 종료
+    code, _ = request("/api/shutdown", "POST")  # 새 버전 서버는 스스로 종료
     time.sleep(1.0)
+    if code == 200:  # 인스타에 올리는 중이면 끝날 때까지(최대 2분) 기다렸다가 스스로 꺼진다
+        for _ in range(130):
+            if request("/api/version")[0] is None:
+                break
+            time.sleep(1.0)
     for pid in pids_on_port():  # 예전 버전 서버(종료 기능 없음)는 프로세스를 끈다 — 파이썬 프로세스만
         info = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"], capture_output=True,
                               text=True, creationflags=NO_WINDOW).stdout.lower()
@@ -85,9 +96,9 @@ def start_server():
 def open_window():
     edge = next((p for p in EDGE if p.exists()), None)
     if edge:
-        subprocess.Popen([str(edge), f"--app={URL}", "--window-size=1460,940"], creationflags=NO_WINDOW)
+        subprocess.Popen([str(edge), f"--app={URL}{PAGE}", f"--window-size={WINDOW}"], creationflags=NO_WINDOW)
     else:
-        webbrowser.open(URL)
+        webbrowser.open(URL + PAGE)
 
 
 def main():
@@ -96,8 +107,8 @@ def main():
         pass  # 최신 서버가 이미 떠 있음
     else:
         if code is not None:
-            busy = request("/api/job")[1].get("running")
-            if busy:
+            job = request("/api/job")[1]
+            if job.get("running") or job.get("publishing"):  # 영상 작업 중이거나 인스타에 올리는 중
                 message("이전 버전 앱에서 작업이 진행 중입니다.\n작업이 끝난 뒤 다시 실행하면 새 버전으로 바뀝니다.")
                 open_window()
                 return
