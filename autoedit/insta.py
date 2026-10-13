@@ -366,6 +366,9 @@ def generate(photo_ids, langs=None, instruction=""):
     made = 0
     for pid in ids:
         jobctl.check()
+        if not photo_path(pid).exists():  # 만드는 도중에 지운 사진
+            print(f"  ! {by_id[pid]['name']}: 사진이 삭제돼 건너뜁니다.")
+            continue
         w = written.get(pid, {})
         for lang in langs:
             v = (w.get("versions") or {}).get(lang)
@@ -381,7 +384,8 @@ def generate(photo_ids, langs=None, instruction=""):
                     "risk": w.get("reuse_risk", (prev or {}).get("risk", "none")),
                     "risk_reason": w.get("risk_reason", (prev or {}).get("risk_reason", "")),
                     "ok_reuse": (prev or {}).get("ok_reuse", False),
-                    "ratio": s["ratio"], "created": (prev or {}).get("created", time.time())}
+                    "ratio": s["ratio"], "created": (prev or {}).get("created", time.time()),
+                    "gen": (prev or {}).get("gen", 0) + 1}  # 글이 새로 만들어진 횟수 (화면의 묵은 수정 정리용)
             render_card(post, s)
             _save_post(post)
             made += 1
@@ -410,7 +414,7 @@ def rewrite(post_id, instruction=""):
         post = get_post(post_id)
         if not post:
             raise llm.UserError("그사이 게시물이 삭제됐습니다.")
-        post.update(title=v["title"], caption=v["caption"], hashtags=v["hashtags"])
+        post.update(title=v["title"], caption=v["caption"], hashtags=v["hashtags"], gen=post.get("gen", 0) + 1)
         render_card(post, s)
         _save_post(post)
     return post

@@ -57,8 +57,13 @@ def pids_on_port():
 
 
 def stop_old_server():
-    request("/api/shutdown", "POST")  # 새 버전 서버는 스스로 종료
+    code, _ = request("/api/shutdown", "POST")  # 새 버전 서버는 스스로 종료
     time.sleep(1.0)
+    if code == 200:  # 인스타에 올리는 중이면 끝날 때까지(최대 2분) 기다렸다가 스스로 꺼진다
+        for _ in range(130):
+            if request("/api/version")[0] is None:
+                break
+            time.sleep(1.0)
     for pid in pids_on_port():  # 예전 버전 서버(종료 기능 없음)는 프로세스를 끈다 — 파이썬 프로세스만
         info = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"], capture_output=True,
                               text=True, creationflags=NO_WINDOW).stdout.lower()

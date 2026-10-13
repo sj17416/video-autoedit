@@ -94,6 +94,7 @@ h2 .btn { margin-left: auto; }
 .queue-list { display: flex; flex-direction: column; gap: 8px; }
 .qitem { display: grid; grid-template-columns: 64px 1fr auto; gap: 12px; align-items: center; background: var(--paper);
   border: 2px solid var(--ink); border-radius: 12px; padding: 8px 10px; }
+.qitem > div { min-width: 0; }  /* 긴 제목이 줄임표로 줄어들게 (좁은 화면 가로 스크롤 방지) */
 .qitem img { width: 64px; height: 64px; object-fit: cover; border-radius: 8px; border: 2px solid var(--ink); }
 .qitem .t { font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .qitem .s { font-size: 12.5px; color: var(--muted); }
@@ -115,3 +116,4 @@ h2 .btn { margin-left: auto; }
 }
 
 .toast { white-space: pre-line; }
+.busy [data-act="rewrite"], .busy [data-act="delete"], .busy .photo .meta button { opacity: .35; cursor: not-allowed; }

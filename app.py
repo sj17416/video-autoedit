@@ -83,6 +83,7 @@ def version():
 def shutdown():
     """앱 종료 (실행기·종료 버튼에서 호출)."""
     jobctl.request()
+    instapub.request_stop()  # 이 순간부터 새 업로드는 시작하지 않는다
 
     def bye():
         time.sleep(0.5)
@@ -529,7 +530,10 @@ def insta_queue_action(item_id, action):
     elif action == "now":
         instapub.publish_now(item_id)
     elif action == "reschedule":
-        instapub.reschedule(item_id, (request.json or {}).get("at") or time.time() + 300)
+        at = (request.json or {}).get("at")
+        if not isinstance(at, (int, float)) or at != at:  # 빈 값·NaN이면 엉뚱한 시각으로 바꾸지 않는다
+            return jsonify(error="올릴 시각이 올바르지 않습니다."), 400
+        instapub.reschedule(item_id, at)
     else:
         abort(404)
     return jsonify(ok=True)

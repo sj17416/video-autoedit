@@ -22,7 +22,12 @@ import uuid
 
 from . import insta
 
-API = f"https://graph.instagram.com/{os.environ.get('INSTA_GRAPH_VERSION', 'v25.0')}"  # 문서 예시 버전 (v26.0도 있음)
+def _api():
+    """Graph API 주소. 버전은 .env의 INSTA_GRAPH_VERSION으로 바꿀 수 있다 (기본: 문서 예시 버전 v25.0)."""
+    return f"https://graph.instagram.com/{os.environ.get('INSTA_GRAPH_VERSION', 'v25.0').strip() or 'v25.0'}"
+
+
+API = None  # 테스트에서 가짜 서버 주소로 바꿀 때만 쓴다
 PUBLISH_DEFAULTS = {
     "auto": True,           # 예약 시간이 되면 자동으로 올리기
     # 임시 이미지 호스팅: litterbox(가입 없음, 1시간 뒤 자동 삭제) / cloudinary(무료 계정, 더 안정적, 올린 뒤 바로 삭제)
@@ -140,9 +145,10 @@ def _http(method, url, params=None, form=None, files=None, timeout=90, raw=False
 
 
 def _graph(method, path, token, **params):
+    base = API or _api()
     if method == "GET":
-        return _http("GET", f"{API}/{path}", params={**params, "access_token": token})
-    return _http("POST", f"{API}/{path}", form={**{k: v for k, v in params.items() if v is not None},
+        return _http("GET", f"{base}/{path}", params={**params, "access_token": token})
+    return _http("POST", f"{base}/{path}", form={**{k: v for k, v in params.items() if v is not None},
                                                 "access_token": token})
 
 
@@ -200,7 +206,7 @@ def public_accounts():
 
 def verify_token(token):
     """토큰으로 계정 정보 확인. 반환: {ig_id, username, account_type}"""
-    me = _http("GET", f"{API}/me", params={"fields": "user_id,username,account_type", "access_token": token})
+    me = _http("GET", f"{API or _api()}/me", params={"fields": "user_id,username,account_type", "access_token": token})
     if isinstance(me.get("data"), list) and me["data"]:  # 문서 예시처럼 data로 감싸 오는 경우
         me = me["data"][0]
     if not me.get("user_id"):
@@ -783,20 +789,23 @@ def scheduler_status():
 
 
 def start_scheduler():
+    """예약 실행기 시작. 다른 서버(개발용 등)가 잠금을 잡고 있으면 기다렸다가, 그쪽이 꺼지면 이어받는다."""
     if os.environ.get("INSTA_SCHEDULER", "1") == "0":
         _status["reason"] = "INSTA_SCHEDULER=0 으로 꺼져 있습니다."
         return
-    if not _acquire_process_lock():
-        _status["reason"] = "다른 창(서버)에서 예약 실행기가 이미 돌고 있습니다."
-        return
-    _recover()
-    _status.update(running=True, reason="")
 
     def loop():
         last_refresh = 0
-        while True:
+        while not _stopping.is_set():
             try:
                 now = time.time()
+                if not _status["running"]:
+                    if not _acquire_process_lock():
+                        _status["reason"] = "다른 창(서버)에서 예약 실행기가 돌고 있습니다. 그쪽이 꺼지면 이어받습니다."
+                        time.sleep(30)
+                        continue
+                    _recover()
+                    _status.update(running=True, reason="")
                 _status["last_check"] = now
                 if now - last_refresh > 6 * 3600:
                     refresh_tokens()
@@ -805,7 +814,7 @@ def start_scheduler():
                     due = _due(now)
                     if due:
                         publish_item(due[0]["id"])
-                        continue  # 밀린 게 있으면 바로 다음 것
+                        continue  # 밀린 게 있으면 바로 다음 것 (간격 규칙은 _due가 지킨다)
             except Exception as e:
                 print(f"[인스타 예약] 오류: {e}")
             time.sleep(30)
@@ -815,6 +824,11 @@ def start_scheduler():
 
 def is_publishing():
     return PUBLISH_LOCK.locked()
+
+
+def request_stop():
+    """앱 종료 요청을 받은 즉시: 새 업로드를 시작하지 않는다."""
+    _stopping.set()
 
 
 def stop(timeout=120):

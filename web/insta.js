@@ -3,6 +3,10 @@ const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 let S = null;                    // 서버 상태 (/api/insta/state)
 const selPhotos = new Set(), selPosts = new Set();
 const edits = {};                // 저장 안 한 게시물 수정 {postId: {...}}
+const editRev = {};              // 수정을 시작할 때의 게시물 gen (그사이 다시 만들기·다시 쓰기로 글이 바뀌면 수정 버림)
+const saving = {};               // 저장 요청 중인 게시물
+const TYPING = 'input[type=text],input[type=number],input[type=password],input[type=datetime-local],textarea';
+const typingIn = (box) => box.contains(document.activeElement) && document.activeElement.matches(TYPING);
 let langFilter = "all";
 let jobRunning = false, lastJobRunning = false;
 
@@ -58,6 +62,10 @@ async function load() {
   S.langs = Object.fromEntries(S.langs);
   for (const id of [...selPhotos]) if (!S.photos.some((p) => p.id === id)) selPhotos.delete(id);
   for (const id of [...selPosts]) if (!S.posts.some((p) => p.id === id)) selPosts.delete(id);
+  for (const id of Object.keys(edits)) {  // 다시 만들기·다시 쓰기로 글이 바뀌었으면 화면의 묵은 수정은 버린다 (단순 재합성은 유지)
+    const p = S.posts.find((x) => x.id === id);
+    if (!p || (p.gen || 0) !== editRev[id]) { delete edits[id]; delete editRev[id]; }
+  }
   renderSettings();
   renderAccounts();
   renderPhotos();
@@ -105,8 +113,10 @@ function renderSettings() {
     box.append(lab);
   }
   const tokenLang = $("#tokenLang");
+  const prevLang = tokenLang.value;  // 다시 그려도 고른 언어 유지
   tokenLang.innerHTML = "";
   for (const code of S.langOrder) tokenLang.append(el("option", { value: code }, S.langs[code]));
+  if (prevLang) tokenLang.value = prevLang;
   for (const inp of $$("[data-s]")) {
     if (document.activeElement === inp) continue;
     const v = s[inp.dataset.s];
@@ -184,7 +194,7 @@ $("#openExportBtn").onclick = () => post("/api/insta/open-export");
 // ---------------------------------------------------------------- 계정
 function renderAccounts() {
   const box = $("#accountList");
-  if (box.contains(document.activeElement)) return;  // 입력 중이면 그대로 둔다
+  if (typingIn(box)) return;  // 글자 입력 중이면 그대로 둔다
   box.innerHTML = "";
   if (!S.accounts.length) {
     box.append(el("p", { class: "hint" }, "연결된 계정이 없습니다. 아래 '+ 인스타 계정 추가'에서 토큰을 넣으세요. (연결 없이도 카드 만들기·폴더 저장은 됩니다)"));
@@ -256,7 +266,7 @@ $("#cloudUrl").onchange = async (e) => {
 // ---------------------------------------------------------------- 1 사진
 function renderPhotos() {
   const grid = $("#photoGrid");
-  if (grid.contains(document.activeElement)) return;
+  if (typingIn(grid)) return;
   grid.innerHTML = "";
   const postCount = {};
   for (const p of S.posts) postCount[p.photo] = (postCount[p.photo] || 0) + 1;
@@ -281,6 +291,7 @@ function renderPhotos() {
     card.append(thumb, el("div", { class: "meta" }, note,
       el("div", { class: "row" }, el("span", { title: ph.name }, ph.name),
         el("button", { title: "사진 삭제 (이 사진의 게시물도 삭제)", onclick: async () => {
+          if (jobRunning) return toast("작업이 끝난 뒤에 삭제할 수 있어요.");
           if (!confirm("이 사진과 이 사진으로 만든 게시물을 삭제할까요?")) return;
           await del(`/api/insta/photos/${ph.id}`);
           selPhotos.delete(ph.id);
@@ -341,14 +352,17 @@ $("#generateBtn").onclick = async () => {
   if (!$("#ownChk").checked) {
     return toast("남의 게시물·사진을 캡처해서 쓰면 글씨를 바꿔도 저작권 침해입니다. 내 사진이 맞으면 체크해 주세요.");
   }
+  const dirtyHit = S.posts.filter((p) => edits[p.id] && selPhotos.has(p.photo) && S.settings.langs.includes(p.lang));
+  if (dirtyHit.length && !confirm(`저장하지 않은 수정이 있는 게시물 ${dirtyHit.length}개를 새로 만듭니다. 수정 내용은 사라져요. 계속할까요?`)) return;
   await flushSettings();
   startJob("/api/insta/generate", { photos: [...selPhotos], langs: S.settings.langs, instruction: $("#instructionInput").value });
 };
 
 // ---------------------------------------------------------------- 작업 진행
 async function startJob(url, body) {
-  try { await post(url, body); } catch (e) { return toast(e.message); }
+  try { await post(url, body); } catch (e) { toast(e.message); return false; }
   pollJob(true);
+  return true;
 }
 async function pollJob(force) {
   const j = await api("/api/job");
@@ -365,6 +379,7 @@ async function pollJob(force) {
   lastJobRunning = j.running;
   updateGenerateInfo();
   $("#rerenderBtn").disabled = $("#framesBtn").disabled = j.running;
+  document.body.classList.toggle("busy", j.running);  // 작업 중에는 다시 쓰기·삭제 버튼을 흐리게
 }
 $("#cancelBtn").onclick = async () => { if (confirm("진행 중인 작업을 중지할까요?")) await post("/api/job/cancel"); };
 let offline = false;
@@ -410,11 +425,16 @@ function renderPosts() {
     tabs.append(el("button", { class: langFilter === code ? "active" : "", onclick: () => { langFilter = code; renderPosts(); } }, name));
   }
   const grid = $("#postGrid");
+  // 입력 중이던 칸은 다시 그린 뒤에도 그대로 (커서 위치까지)
+  const a = document.activeElement;
+  const keep = grid.contains(a) && a.dataset.k ? { id: a.closest(".post").dataset.id, k: a.dataset.k, s: a.selectionStart, e: a.selectionEnd } : null;
   grid.innerHTML = "";
   const qs = queuedStatus();
   const list = S.posts.filter((p) => langFilter === "all" || p.lang === langFilter).slice().reverse();
   for (const p of list) grid.append(postNode(p, qs[p.id]));
   if (!S.posts.length) grid.append(el("p", { class: "hint" }, "아직 게시물이 없습니다. 위에서 사진을 고르고 '게시물 만들기'를 누르세요."));
+  const back = keep && $(`#postGrid .post[data-id="${keep.id}"] [data-k="${keep.k}"]`);
+  if (back) { back.focus(); try { back.setSelectionRange(keep.s, keep.e); } catch {} }
   const risky = S.posts.filter((p) => !p.can_autopost).length;
   $("#postSummary").textContent = S.posts.length ? `${S.posts.length}개${risky ? ` · ⚠ 확인 필요 ${risky}개` : ""}` : "";
 }
@@ -446,6 +466,7 @@ function postNode(p, qstatus) {
     if (inp.type === "checkbox") inp.checked = !!v(k);
     else inp.value = v(k) ?? "";
     inp.addEventListener(inp.type === "checkbox" ? "change" : "input", () => {
+      if (!edits[p.id]) editRev[p.id] = p.gen || 0;
       (edits[p.id] ||= {})[k] = inp.type === "checkbox" ? inp.checked : inp.value;
       markDirty();
     });
@@ -454,6 +475,7 @@ function postNode(p, qstatus) {
   for (const r of $$("[data-o]", node)) {
     r.value = opts[r.dataset.o];
     r.oninput = () => {
+      if (!edits[p.id]) editRev[p.id] = p.gen || 0;
       const ed = (edits[p.id] ||= {});
       ed.opts = { ...(p.opts || {}), ...(ed.opts || {}), [r.dataset.o]: Number(r.value) };
       markDirty();
@@ -461,12 +483,13 @@ function postNode(p, qstatus) {
     r.onchange = () => savePost(p.id);  // 슬라이더를 놓으면 바로 다시 합성해서 보여준다
   }
   $('[data-act="save"]', node).onclick = () => savePost(p.id);
-  $('[data-act="rewrite"]', node).onclick = () => {
+  $('[data-act="rewrite"]', node).onclick = async () => {
     if (!S.llm) return toast("다시 쓰기는 Claude API 키가 필요합니다.");
+    if (jobRunning) return toast("지금 작업이 끝난 뒤에 다시 써 주세요.");
     const extra = prompt("어떻게 바꿀까요? (비워 두면 새로운 느낌으로)  예: 더 짧게, 더 궁금하게, 반말로", "");
     if (extra === null) return;
-    delete edits[p.id];
-    startJob(`/api/insta/posts/${p.id}/rewrite`, { instruction: extra });
+    if (edits[p.id] && !confirm("저장하지 않은 수정은 새로 쓴 글로 바뀝니다. 계속할까요?")) return;
+    if (await startJob(`/api/insta/posts/${p.id}/rewrite`, { instruction: extra })) { delete edits[p.id]; delete editRev[p.id]; }
   };
   $('[data-act="copy"]', node).onclick = async () => {
     const tags = (v("hashtags") || "").split(/[\s,]+/).filter(Boolean).map((t) => "#" + t.replace(/^#/, ""));
@@ -476,6 +499,7 @@ function postNode(p, qstatus) {
   const dl = $('[data-act="download"]', node);
   dl.href = `/api/insta/cards/${p.id}.jpg?dl=1`;
   $('[data-act="delete"]', node).onclick = async () => {
+    if (jobRunning) return toast("작업이 끝난 뒤에 삭제할 수 있어요.");
     if (!confirm("이 게시물을 삭제할까요?")) return;
     await del(`/api/insta/posts/${p.id}`);
     delete edits[p.id];
@@ -487,15 +511,38 @@ function postNode(p, qstatus) {
 async function savePost(id) {
   const e = edits[id];
   if (!e) return;
-  const node = $(`#postGrid .post[data-id="${id}"]`);
+  if (saving[id]) { saving[id] = "again"; return; }  // 저장 중이면 끝난 뒤 한 번 더
+  saving[id] = true;
+  const sent = JSON.parse(JSON.stringify(e));
   try {
-    const updated = await post(`/api/insta/posts/${id}`, e);
-    delete edits[id];
+    const updated = await post(`/api/insta/posts/${id}`, sent);
+    const cur = edits[id] || {};
+    for (const k of Object.keys(sent)) if (JSON.stringify(cur[k]) === JSON.stringify(sent[k])) delete cur[k];  // 저장 중에 또 고친 건 남긴다
+    if (Object.keys(cur).length) editRev[id] = updated.gen || 0; else { delete edits[id]; delete editRev[id]; }
     const i = S.posts.findIndex((p) => p.id === id);
     if (i >= 0) S.posts[i] = updated;
-    if (node) node.replaceWith(postNode(updated, queuedStatus()[id]));
+    refreshPostNode(updated);
     renderPostsSummaryOnly();
   } catch (err) { toast(err.message); }
+  const again = saving[id] === "again";
+  delete saving[id];
+  if (again && edits[id]) savePost(id);
+}
+function refreshPostNode(p) {
+  // 카드를 새로 만들지 않고 그림·입력값만 갱신 → '이 카드만 모양 바꾸기' 패널과 포커스가 그대로
+  const node = $(`#postGrid .post[data-id="${p.id}"]`);
+  if (!node) return;
+  $(".post-img img", node).src = `/api/insta/cards/${p.id}.jpg?v=${p.rev || 0}`;
+  const e = edits[p.id] || {};
+  for (const inp of $$("[data-k]", node)) {
+    const k = inp.dataset.k;
+    if (k in e || document.activeElement === inp) continue;
+    if (inp.type === "checkbox") inp.checked = !!p[k];
+    else inp.value = k === "hashtags" ? (p.hashtags || []).join(" ") : (p[k] ?? "");
+  }
+  node.classList.toggle("dirty", Object.keys(e).length > 0);
+  const risky = p.risk && p.risk !== "none";
+  $(".risk", node).hidden = !risky;
 }
 function renderPostsSummaryOnly() {
   const risky = S.posts.filter((p) => !p.can_autopost).length;
@@ -535,14 +582,22 @@ $("#modal").onclick = (e) => { if (e.target.id === "modal") $("#modal").hidden =
 const QSTATUS = { scheduled: "예약됨", publishing: "올리는 중", published: "올림", failed: "실패", canceled: "취소됨" };
 function renderQueue() {
   const box = $("#queueList");
-  if (box.contains(document.activeElement)) return;
+  if (typingIn(box)) return;
   box.innerHTML = "";
-  const act = (it, a, body) => post(`/api/insta/queue/${it.id}/${a}`, body).then(load).catch((e) => toast(e.message));
+  const act = (it, a, body) => post(`/api/insta/queue/${it.id}/${a}`, body).then(load).catch((e) => { toast(e.message); load(); });
   for (const it of S.queue) {
     const btns = el("div", { class: "btns" });
     if (it.status === "scheduled") {
-      const dt = el("input", { type: "datetime-local", value: localInput(it.at), title: "올릴 시각 바꾸기" });
-      dt.onchange = () => act(it, "reschedule", { at: new Date(dt.value).getTime() / 1000 });
+      const dt = el("input", { type: "datetime-local", value: localInput(it.at), title: "올릴 시각 바꾸기 (다 고친 뒤 Enter)" });
+      const commit = () => {
+        const t = new Date(dt.value).getTime() / 1000;
+        if (!dt.value || Number.isNaN(t) || dt.value === localInput(it.at)) return;  // 고치는 중(빈 칸)·그대로면 무시
+        if (t < Date.now() / 1000 - 60 && !confirm("지난 시각입니다. 바로 올라가게 할까요?")) { dt.value = localInput(it.at); return; }
+        dt.blur();
+        act(it, "reschedule", { at: t });
+      };
+      dt.onblur = commit;
+      dt.onkeydown = (ev) => { if (ev.key === "Enter") commit(); };
       btns.append(dt,
         el("button", { class: "btn small yellow", onclick: () => confirm("지금 바로 올릴까요?") && act(it, "now") }, "지금 올리기"),
         el("button", { class: "btn small", onclick: () => act(it, "cancel") }, "취소"));
