@@ -123,6 +123,7 @@ body { background: #262b40; }
 .mini-btn:hover:not(:disabled) { background: #fffdf5; }
 .mini-btn:disabled { opacity: .45; cursor: not-allowed; }
 .mini-btn.go { background: var(--go); }
+.mini-btn.update { background: var(--go); font-weight: 800; }
 .mini-btn.danger { color: var(--danger); }
 .runbar .status { margin-left: auto; }
 

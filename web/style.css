@@ -180,3 +180,7 @@ input[type=range] { width: 100%; accent-color: var(--ink); }
   .fine-grid .span2 { grid-column: auto; }
   .topbar { padding: 12px 16px; flex-wrap: wrap; }
 }
+
+/* 새 버전 알림 단추 */
+.pill.update { background: var(--yellow); color: var(--ink); border-color: var(--ink); font-weight: 800; }
+.pill.update:hover { filter: brightness(1.07); background: var(--yellow); }
