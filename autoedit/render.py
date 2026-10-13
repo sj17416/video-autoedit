@@ -124,7 +124,11 @@ _face = None
 
 
 FACE_MODEL = Path(__file__).resolve().parent.parent / "models" / "face_detection_yunet_2023mar.onnx"
-FACE_URL = "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx"
+# 받는 곳 두 곳. opencv_zoo는 Git LFS라서 주소에 따라 모델 대신 130바이트짜리 안내문이 오기도 한다
+# (그 파일로는 검출기가 만들어지지 않는다). 그래서 크기를 확인하고, 아니면 다음 주소로 넘어간다.
+FACE_URLS = ["https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx",
+             "https://huggingface.co/opencv/face_detection_yunet/resolve/main/face_detection_yunet_2023mar.onnx"]
+FACE_MIN_BYTES = 100_000
 
 
 def _face_detector():
@@ -132,9 +136,21 @@ def _face_detector():
     global _face
     if _face is None:
         try:
-            if not FACE_MODEL.exists():
+            if not FACE_MODEL.exists() or FACE_MODEL.stat().st_size < FACE_MIN_BYTES:
                 FACE_MODEL.parent.mkdir(exist_ok=True)
-                FACE_MODEL.write_bytes(urllib.request.urlopen(FACE_URL, timeout=30).read())
+                last = None
+                for url in FACE_URLS:
+                    try:
+                        data = urllib.request.urlopen(url, timeout=60).read()
+                    except Exception as e:
+                        last = e
+                        continue
+                    if len(data) >= FACE_MIN_BYTES:   # 안내문(130바이트)이 아니라 진짜 모델인지
+                        FACE_MODEL.write_bytes(data)
+                        break
+                    last = RuntimeError(f"{url} 에서 모델 대신 {len(data)}바이트만 받았습니다")
+                else:
+                    raise last or RuntimeError("모델을 받지 못했습니다")
             # 한글 경로를 OpenCV가 못 여므로 모델을 메모리로 읽어서 넘긴다
             _face = cv2.FaceDetectorYN.create("onnx", np.fromfile(FACE_MODEL, np.uint8), np.array([], np.uint8),
                                               (320, 320), 0.7)

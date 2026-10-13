@@ -14,6 +14,7 @@ try:  # ctranslate2(Whisper)가 VC++ 런타임 DLL을 먼저 로드해야 OCR/Op
 except ImportError as e:
     sys.exit(f"Whisper 엔진 로드 실패: {e}")
 
+import contextlib
 import json
 import re
 import threading
@@ -22,7 +23,7 @@ import traceback
 import webbrowser
 from pathlib import Path
 
-from flask import Flask, abort, jsonify, request, send_from_directory
+from flask import Flask, Response, abort, jsonify, request, send_from_directory
 
 from autoedit import env, insta, instacard, instapub, jobctl, llm, update
 from autoedit.illustrate import REF_EXTS
@@ -447,6 +448,24 @@ def insta_photo_file(pid):
     if not insta.safe_id(pid):
         abort(404)
     return send_from_directory(insta.PHOTOS, f"{pid}.jpg", max_age=3600)
+
+
+@app.get("/api/insta/preview/<pid>.jpg")
+def insta_preview(pid):
+    """변환 미리보기. ?before=1이면 보정 전, 아니면 현재 설정(또는 넘긴 값)으로 보정한 모습."""
+    if not insta.safe_id(pid):
+        abort(404)
+    q = request.args
+    opts = {}
+    for k in instacard.RETOUCH_KEYS:
+        if k in q:
+            with contextlib.suppress(ValueError):
+                opts[k] = float(q[k])
+    data, info = insta.preview(pid, q.get("lang", "ko"), opts, before=q.get("before") == "1")
+    res = Response(data, mimetype="image/jpeg")
+    res.headers["X-Faces"] = str(info.get("found", 0))  # 얼굴을 못 찾으면 화면에서 알려 준다
+    res.headers["Cache-Control"] = "no-store"
+    return res
 
 
 @app.post("/api/insta/frames")

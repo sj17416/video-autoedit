@@ -111,6 +111,9 @@ def save_settings(changes):
         if s["logo_pos"] not in ("left", "center", "right"):
             s["logo_pos"] = "center"
         s["hashtags"] = max(0, min(MAX_HASHTAGS, int(s["hashtags"])))
+        for k in instacard.RETOUCH_KEYS:  # 얼굴 보정 세기는 범위를 벗어나면 얼굴이 망가진다
+            lo = -1.0 if k == "face_bright" else 0.0
+            s[k] = max(lo, min(1.0, float(s[k])))
         _save("settings.json", s)
         return s
 
@@ -506,3 +509,27 @@ def mark_published(photo_id):
         if ph["hash"] not in hashes:
             hashes.append(ph["hash"])
         _save("history.json", hist)
+
+
+PREVIEW_W = 520  # 미리보기는 작게 → 보정 계산이 0.1초 안에 끝난다
+
+
+def preview(pid, lang="ko", opts=None, before=False):
+    """사진 한 장을 카드에 들어갈 모양(정사각형)으로 자르고 보정해서 JPEG 바이트로 돌려준다.
+
+    before=True면 보정 전 원본. 두 장을 나란히 놓고 비교하는 '변환' 미리보기에 쓴다.
+    """
+    p = photo_path(pid)
+    if not p.exists():
+        raise llm.UserError("사진을 찾을 수 없습니다.")
+    img = Image.open(io.BytesIO(_retry(lambda: p.read_bytes()))).convert("RGB")
+    s = settings()
+    o = {k: s[k] for k in instacard.CARD_DEFAULTS} | {k: v for k, v in (opts or {}).items()
+                                                      if k in instacard.CARD_DEFAULTS}
+    shot = instacard._cover(img, PREVIEW_W, PREVIEW_W, instacard._focus_y(img))
+    info = {"found": 0, "applied": False, "mood": False}
+    if not before:
+        shot, info = instacard.face_edit(shot, lang, o)
+    buf = io.BytesIO()
+    shot.save(buf, "JPEG", quality=88)
+    return buf.getvalue(), info

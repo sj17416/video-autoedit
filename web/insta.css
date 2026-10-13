@@ -229,3 +229,13 @@ body { background: #262b40; }
   .qitem img { width: 48px; height: 48px; }
   .qitem .btns { grid-column: 1 / -1; justify-content: flex-start; }
 }
+
+/* 얼굴 변환 */
+.free { font-size: 11px; font-weight: 800; border: 2px solid var(--ink); border-radius: 999px; padding: 0 7px; background: var(--green); vertical-align: 2px; }
+.modal-body.wide { max-width: 1000px; }
+.cv-h { margin: 0 0 10px; font-size: 19px; }
+.cv-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.cv-pair figure { margin: 0; }
+.cv-pair img { width: 100%; aspect-ratio: 1; object-fit: cover; border: 3px solid var(--ink); border-radius: 12px; background: #ece6d8; display: block; }
+.cv-pair figcaption { margin-top: 6px; font-weight: 800; text-align: center; }
+@media (max-width: 700px) { .cv-pair { grid-template-columns: 1fr; } }

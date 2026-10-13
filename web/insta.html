@@ -89,6 +89,34 @@
       </section>
 
       <section class="grp">
+        <h3>얼굴 변환 <span class="free">무료</span></h3>
+        <p class="note">내 사진 속 얼굴을 아주 조금씩 다듬고, 나라마다 색감·분위기를 다르게 합니다.
+          AI 서버를 쓰지 않고 이 컴퓨터에서 계산하므로 요금이 들지 않습니다.</p>
+        <div class="seg" data-preset="retouch">
+          <button data-v="off">끄기</button><button data-v="soft">자연스럽게</button><button data-v="strong">확실하게</button>
+        </div>
+        <label class="fld">눈 크게 <b><span data-show="eye"></span></b>
+          <input type="range" data-s="eye" min="0" max="1" step="0.05">
+        </label>
+        <label class="fld">코 날렵하게 <b><span data-show="nose"></span></b>
+          <input type="range" data-s="nose" min="0" max="1" step="0.05">
+        </label>
+        <label class="fld">턱선 · 목살 <b><span data-show="chin"></span></b>
+          <input type="range" data-s="chin" min="0" max="1" step="0.05">
+        </label>
+        <label class="fld">피부 <b><span data-show="skin"></span></b>
+          <input type="range" data-s="skin" min="0" max="1" step="0.05">
+        </label>
+        <label class="fld">얼굴 밝기 <b><span data-show="face_bright"></span></b>
+          <input type="range" data-s="face_bright" min="-1" max="1" step="0.05">
+        </label>
+        <label class="fld">나라별 분위기 <b><span data-show="mood"></span></b>
+          <input type="range" data-s="mood" min="0" max="1" step="0.05">
+        </label>
+        <p class="note">나라별 분위기를 올리면 같은 사진이라도 나라마다 밝기·색·구도가 달라집니다.</p>
+      </section>
+
+      <section class="grp">
         <h3>스타일 샘플 (작성 예시)</h3>
         <textarea data-s="style" rows="4" placeholder="[제목] 가고 싶은 여행지&#10;[본문] 여기 진짜 대박이에요… (이모지 활용)"></textarea>
         <p class="note">샘플 양식을 입력하면 AI가 제목과 본문 구성을 따라서 씁니다.</p>
@@ -171,6 +199,7 @@
       <div class="viewbar">
         <div><button id="selAllPhotos" class="mini-btn">전체 선택</button>
           <button id="selNonePhotos" class="mini-btn">선택 해제</button></div>
+        <div><button id="convertBtn" class="mini-btn go">변환 미리보기</button></div>
         <span class="muted">사진을 눌러 고르고, 위의 <b>게시물 만들기</b>를 누르세요</span>
       </div>
       <label class="dropzone" id="dropzone">
@@ -207,6 +236,24 @@
   <div class="modal-body card narrow">
     <button class="modal-close" id="modalClose">×</button>
     <img id="modalImg" alt="미리보기">
+  </div>
+</div>
+
+<div id="cvModal" class="modal" hidden>
+  <div class="modal-body card wide">
+    <button class="modal-close" id="cvClose">×</button>
+    <h2 class="cv-h">변환 미리보기</h2>
+    <nav class="tabs" id="cvLangs"></nav>
+    <div class="cv-pair">
+      <figure><img id="cvBefore" alt="원본"><figcaption>원본</figcaption></figure>
+      <figure><img id="cvAfter" alt="변환 후"><figcaption>변환 후</figcaption></figure>
+    </div>
+    <p class="note" id="cvNote"></p>
+    <div class="row actions">
+      <button id="cvPrev" class="btn small">← 이전 사진</button>
+      <span id="cvCount" class="muted"></span>
+      <button id="cvNext" class="btn small">다음 사진 →</button>
+    </div>
   </div>
 </div>
 
