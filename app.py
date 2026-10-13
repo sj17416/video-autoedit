@@ -298,6 +298,58 @@ def project_file(pid, name):
     abort(404)
 
 
+# ---------------------------------------------------------------- 쇼핑 쇼츠 (클립 + 대본 → 세로 쇼츠)
+
+SHOP_DIR = ROOT / "shopping"
+
+
+@app.post("/api/shopping")
+def make_shopping():
+    """직접 찍은 클립들 + 대본으로 쇼핑 쇼츠를 만든다. 결과는 저장 위치에 '쇼핑쇼츠_<id>.mp4'."""
+    from autoedit.shopping import VIDEO_EXTS, make_short
+    files = [f for f in request.files.getlist("clips") if Path(f.filename or "").suffix.lower() in VIDEO_EXTS]
+    script = (request.form.get("script") or "").strip()
+    if not files:
+        return jsonify(error="클립(영상 파일)을 1개 이상 올려 주세요."), 400
+    if not script:
+        return jsonify(error="대본을 적어 주세요. 한 줄에 한 컷씩입니다."), 400
+    sid = new_project_id()
+    d = SHOP_DIR / sid
+    (d / "clips").mkdir(parents=True)
+    clips = []
+    for f in files:
+        p = d / "clips" / Path(f.filename).name
+        f.save(p)
+        clips.append(p)
+    clips.sort(key=lambda p: [int(t) if t.isdigit() else t for t in re.split(r"(\d+)", p.stem)])
+    bgm = None
+    if request.files.get("bgm") and request.files["bgm"].filename:
+        bgm = d / f"bgm{Path(request.files['bgm'].filename).suffix.lower() or '.mp3'}"
+        request.files["bgm"].save(bgm)
+    out = output_dir() / f"쇼핑쇼츠_{sid}.mp4"
+    (d / "meta.json").write_text(json.dumps({"out": str(out)}, ensure_ascii=False), encoding="utf-8")
+    form = request.form
+
+    def fn():
+        make_short(clips, script, out, d / "work", keyword=form.get("keyword") or None,
+                   voice=form.get("voice") or "여성", rate=form.get("rate") or "+10%", bgm=bgm)
+
+    if not start_job(f"shopping:{sid}", "쇼핑 쇼츠 만들기", fn):
+        return jsonify(error="다른 작업이 실행 중입니다."), 409
+    return jsonify(id=sid)
+
+
+@app.get("/api/shopping/<sid>/video")
+def shopping_video(sid):
+    meta = SHOP_DIR / sid / "meta.json" if re.fullmatch(r"[\w\-]+", sid) else None
+    if not meta or not meta.exists():
+        abort(404)
+    out = Path(json.loads(meta.read_text(encoding="utf-8"))["out"])
+    if not out.exists():
+        abort(404)
+    return send_from_directory(out.parent, out.name, as_attachment=request.args.get("dl") == "1", max_age=0)
+
+
 # ---------------------------------------------------------------- 그림체 참고 이미지 / API 키
 
 @app.get("/api/styles")

@@ -39,6 +39,34 @@
     </section>
 
     <section class="card">
+      <h2><span class="num gear">🛒</span> 쇼핑 쇼츠 만들기</h2>
+      <p class="hint">직접 찍은 클립과 대본(한 줄 = 한 컷)을 넣으면 세로 쇼츠로 만듭니다.
+        자막은 흰 글자 + 검은 테두리, 키워드는 노란색, 1~2초마다 화면 전환, AI 목소리 + 실제 소리 + 배경음악.</p>
+      <label class="shop-field">클립 (이름 순서대로 줄에 붙음)
+        <input type="file" id="shopClips" accept="video/*" multiple>
+      </label>
+      <label class="shop-field">대본
+        <textarea id="shopScript" rows="7" placeholder="키워드: 쫀득&#10;아이가 간식 사 달라고 조르는데&#10;고구마가 남아 있길래&#10;레시피 궁금하면 '쫀득' 남겨 주세요"></textarea>
+      </label>
+      <div class="selects">
+        <label>키워드 <input type="text" id="shopKeyword" placeholder="대본에서 자동" style="width:110px"></label>
+        <label>목소리
+          <select id="shopVoice"><option>여성</option><option>남성</option><option value="없음">없음 (클립 소리만)</option></select>
+        </label>
+        <label>빠르기
+          <select id="shopRate"><option value="+0%">보통</option><option value="+10%" selected>조금 빠르게</option><option value="+20%">빠르게</option></select>
+        </label>
+      </div>
+      <label class="shop-field">배경음악 (선택, 무료 음원)
+        <input type="file" id="shopBgm" accept="audio/*">
+      </label>
+      <button id="shopBtn" class="btn yellow">쇼핑 쇼츠 만들기</button>
+      <p id="shopStatus" class="hint"></p>
+      <video id="shopVideo" class="shop-video" controls hidden></video>
+      <a id="shopDownload" class="btn small" hidden>내려받기</a>
+    </section>
+
+    <section class="card">
       <h2><span class="num gear">⚙</span> 설정 (API 키)</h2>
       <label class="key-field">
         <span>Claude (기획 · 자막 교정) <em id="keyAnthropic"></em></span>

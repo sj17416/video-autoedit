@@ -528,6 +528,50 @@ function renderResult() {
   box.querySelector("#openOutBtn").onclick = () => postJSON("/api/open-folder", {});
 }
 
+// ---------------------------------------------------------------- 쇼핑 쇼츠
+let shopId = null;
+$("#shopBtn").onclick = async () => {
+  const clips = $("#shopClips").files;
+  if (!clips.length) return alert("클립(영상 파일)을 1개 이상 골라 주세요.");
+  if (!$("#shopScript").value.trim()) return alert("대본을 적어 주세요. 한 줄에 한 컷씩입니다.");
+  const fd = new FormData();
+  for (const f of clips) fd.append("clips", f);
+  fd.append("script", $("#shopScript").value);
+  fd.append("keyword", $("#shopKeyword").value.trim());
+  fd.append("voice", $("#shopVoice").value);
+  fd.append("rate", $("#shopRate").value);
+  if ($("#shopBgm").files[0]) fd.append("bgm", $("#shopBgm").files[0]);
+  $("#shopBtn").disabled = true;
+  $("#shopStatus").textContent = "클립 올리는 중…";
+  $("#shopVideo").hidden = $("#shopDownload").hidden = true;
+  try {
+    shopId = (await api("/api/shopping", { method: "POST", body: fd })).id;
+  } catch (e) {
+    $("#shopBtn").disabled = false;
+    $("#shopStatus").textContent = "";
+    return alert(e.message);
+  }
+};
+setInterval(async () => {
+  if (!shopId) return;
+  let j;
+  try { j = await api("/api/job"); } catch { return; }
+  if (j.project !== `shopping:${shopId}`) return;
+  const last = j.log.trim().split("\n").pop() || "";
+  if (j.running) { $("#shopStatus").textContent = `만드는 중… ${last}`; return; }
+  $("#shopBtn").disabled = false;
+  if (j.error) {
+    $("#shopStatus").textContent = `오류: ${j.error}`;
+  } else {
+    const url = `/api/shopping/${shopId}/video`;
+    $("#shopStatus").textContent = "완성! 저장 위치에도 저장됐어요. 올리기 전에 꼭 확인해 주세요.";
+    $("#shopVideo").src = `${url}?t=${Date.now()}`;
+    $("#shopDownload").href = `${url}?dl=1`;
+    $("#shopVideo").hidden = $("#shopDownload").hidden = false;
+  }
+  shopId = null;
+}, 1000);
+
 // ---------------------------------------------------------------- 탭
 for (const b of document.querySelectorAll(".tabs button")) {
   b.onclick = () => {
