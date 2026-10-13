@@ -302,7 +302,7 @@ $("#selAllPhotos").onclick = () => { S.photos.forEach((p) => selPhotos.add(p.id)
 $("#selNonePhotos").onclick = () => { selPhotos.clear(); renderPhotos(); };
 
 function uploadPhotos(files) {
-  files = [...files].filter((f) => f.type.startsWith("image/") || /\.(jpe?g|png|webp|bmp|heic)$/i.test(f.name));
+  files = [...files].filter((f) => f.type.startsWith("image/") || /\.(jpe?g|jfif|jpe|png|webp|bmp|hei[cf])$/i.test(f.name));
   if (!files.length) return toast("이미지 파일이 없습니다.");
   const bar = $("#uploadProgress");
   bar.hidden = false;
@@ -316,7 +316,10 @@ function uploadPhotos(files) {
     let r = {};
     try { r = JSON.parse(xhr.responseText); } catch {}
     if (xhr.status !== 200) return toast(`업로드 실패: ${r.error || xhr.status}`);
-    toast(`사진 ${r.added}장 추가${r.dup ? ` · 이미 있는 사진 ${r.dup}장 건너뜀` : ""}${r.bad?.length ? ` · 못 읽은 파일 ${r.bad.length}개` : ""}`, "info");
+    const heic = (r.bad || []).some((n) => /\.hei[cf]$/i.test(n));
+    toast(`사진 ${r.added}장 추가${r.dup ? ` · 이미 있는 사진 ${r.dup}장 건너뜀` : ""}${r.bad?.length ? ` · 못 읽은 파일 ${r.bad.length}개` : ""}` +
+      (heic ? "\n아이폰 HEIC 사진은 읽을 수 없어요. 아이폰 설정 → 카메라 → 포맷 → '높은 호환성'으로 찍거나, JPG로 내보내 주세요." : ""),
+      r.bad?.length ? "error" : "info");
     load();
   };
   xhr.onerror = () => { bar.hidden = true; toast("업로드 중 연결이 끊겼습니다."); };

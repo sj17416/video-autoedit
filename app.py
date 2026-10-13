@@ -51,6 +51,22 @@ def handle_error(e):
     return jsonify(error=f"서버 오류: {e}"), 500
 
 
+@app.before_request
+def block_cross_site():
+    """다른 웹사이트가 이 PC의 앱에 몰래 요청을 보내지 못하게 한다 (예: 로고를 바꿔 예약 게시물에 섞기).
+    이 앱 화면에서 보낸 요청과 실행기(브라우저가 아님)만 받는다."""
+    if request.method in ("GET", "HEAD", "OPTIONS"):
+        return None
+    host = request.host.split(":")[0]
+    if host not in ("127.0.0.1", "localhost"):  # DNS 리바인딩 방지
+        return jsonify(error="허용되지 않은 주소입니다."), 403
+    site = request.headers.get("Sec-Fetch-Site")
+    origin = request.headers.get("Origin")
+    if site == "cross-site" or (origin and origin.split("://", 1)[-1] != request.host):
+        return jsonify(error="다른 사이트에서 온 요청은 받지 않습니다."), 403
+    return None
+
+
 @app.errorhandler(instapub.IGError)
 @app.errorhandler(llm.UserError)
 def handle_user_error(e):

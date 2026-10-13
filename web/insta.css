@@ -113,3 +113,5 @@ h2 .btn { margin-left: auto; }
   .qitem img { width: 48px; height: 48px; }
   .qitem .btns { grid-column: 1 / -1; justify-content: flex-start; }
 }
+
+.toast { white-space: pre-line; }

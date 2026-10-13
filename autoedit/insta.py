@@ -27,7 +27,7 @@ INSTA = ROOT / "insta"
 PHOTOS = INSTA / "photos"
 CARDS = INSTA / "cards"
 LOGO = INSTA / "logo.png"
-PHOTO_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".heic"}
+PHOTO_EXTS = {".jpg", ".jpeg", ".jfif", ".jpe", ".png", ".webp", ".bmp", ".heic", ".heif"}
 DUP_DISTANCE = 5        # 지문 비트 차이가 이 이하면 같은 사진으로 본다
 BATCH = 6               # Claude에 한 번에 보내는 사진 수
 MAX_HASHTAGS = 5        # 인스타는 2025년 12월부터 게시물당 해시태그 5개까지
@@ -44,22 +44,34 @@ SETTINGS_DEFAULTS = {
 }
 
 
+def _retry(fn, tries=20):
+    """Windows에서는 다른 스레드가 파일을 읽는 순간 교체·열기가 잠깐 막힐 수 있다 → 잠시 뒤 다시."""
+    for i in range(tries):
+        try:
+            return fn()
+        except PermissionError:
+            if i == tries - 1:
+                raise
+            time.sleep(0.05)
+
+
 def _load(name, default):
     p = INSTA / name
     if not p.exists():
         return default
     try:
-        return json.loads(p.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return default
+        return json.loads(_retry(lambda: p.read_text(encoding="utf-8")))
+    except ValueError:
+        # 빈 목록으로 보고 계속하면 다음 저장 때 내용이 통째로 지워진다 → 멈추고 알린다
+        raise llm.UserError(f"{p} 파일이 손상됐습니다. 백업이 있으면 되돌리거나 파일을 지운 뒤 다시 시도하세요.") from None
 
 
 def _save(name, data):
     INSTA.mkdir(exist_ok=True)
     p = INSTA / name
-    tmp = p.with_suffix(".tmp")
+    tmp = p.with_name(f"{p.stem}.{threading.get_ident()}.tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
-    tmp.replace(p)  # 쓰다가 꺼져도 원래 파일이 깨지지 않게
+    _retry(lambda: tmp.replace(p))  # 쓰다가 꺼져도 원래 파일이 깨지지 않게
 
 
 def _new_id(prefix):
@@ -127,8 +139,14 @@ def photos():
     return _load("photos.json", [])
 
 
+def _check_id(x):
+    if not safe_id(x):  # Windows에서는 역슬래시(..\\)로 폴더 밖 파일을 가리킬 수 있다
+        raise llm.UserError("잘못된 id입니다.")
+    return x
+
+
 def photo_path(pid):
-    return PHOTOS / f"{pid}.jpg"
+    return PHOTOS / f"{_check_id(pid)}.jpg"
 
 
 def _published_hashes():
@@ -163,7 +181,7 @@ def add_uploads(files):
         try:
             img = instacard.load_photo(data)
         except Exception:
-            bad.append(name)
+            bad.append(Path(name).name)  # 아이폰 HEIC는 PIL이 못 읽는다 → 화면에서 '높은 호환성' 설정을 안내
             continue
         _, new = add_photo_image(img, Path(name).name)
         added, dup = added + new, dup + (not new)
@@ -236,7 +254,7 @@ def import_frames(project, count=8):
     # 같은 구도가 많은 영상(말하는 영상 등)이면 기준을 점점 낮춰서 요청한 장수를 채운다
     good = [c for c in sorted(cands, key=lambda c: -c[0]) if c[0] >= 15]  # 심하게 흔들리거나 까만 화면 제외
     picked = []
-    for min_diff in (12, 7, 3):
+    for min_diff in (12, 8, DUP_DISTANCE):  # 마지막 단계도 '같은 사진' 기준보다는 달라야 한다
         for c in good:
             if len(picked) >= count:
                 break
@@ -259,19 +277,26 @@ def posts():
 
 
 def card_path(post_id):
-    return CARDS / f"{post_id}.jpg"
+    return CARDS / f"{_check_id(post_id)}.jpg"
 
 
 def get_post(post_id):
     return next((p for p in posts() if p["id"] == post_id), None)
 
 
-def _save_post(post):
+def _save_post(post, if_rev=None):
+    """if_rev: 합성을 시작할 때의 rev. 그사이 사용자가 고치거나 지웠으면 저장하지 않는다 (오래된 내용으로 덮어쓰기 방지)."""
     with LOCK:
-        items = [p for p in posts() if p["id"] != post["id"]]
+        cur = posts()
+        if if_rev is not None:
+            now = next((p for p in cur if p["id"] == post["id"]), None)
+            if now is None or now.get("rev", 0) != if_rev:
+                return False
+        items = [p for p in cur if p["id"] != post["id"]]
         items.append(post)
         items.sort(key=lambda p: (p["created"], p["id"]))
         _save("posts.json", items)
+        return True
 
 
 def render_card(post, s=None):
@@ -320,10 +345,21 @@ def generate(photo_ids, langs=None, instruction=""):
                                         instruction=instruction)
             return {batch[k]: v for k, v in res.items()}
 
+        failed = []
         with ThreadPoolExecutor(max_workers=min(4, len(batches))) as ex:
-            for part in ex.map(write, batches):
-                written.update(part)
-                print(f"  글쓰기 {len(written)}/{len(ids)}장 완료")
+            futures = [(b, ex.submit(write, b)) for b in batches]
+            for b, fut in futures:
+                try:
+                    written.update(fut.result())
+                    print(f"  글쓰기 {len(written)}/{len(ids)}장 완료")
+                except jobctl.Cancelled:
+                    raise
+                except Exception as e:  # 한 묶음이 실패해도 나머지 묶음 결과는 살린다
+                    failed += b
+                    print(f"  ! 사진 {len(b)}장 묶음 글쓰기 실패: {e}")
+        if failed and not written:
+            raise llm.UserError("Claude 글쓰기가 모두 실패했습니다. 위 오류를 확인하고 다시 시도해 주세요.")
+        ids = [i for i in ids if i not in failed]
     else:
         print("※ Claude API 키가 없어 제목·본문은 비워 둡니다. 게시물 탭에서 직접 써 주세요. (카드 합성은 무료로 그대로 진행)")
     old = {(p["photo"], p["lang"]): p for p in posts()}
@@ -370,9 +406,13 @@ def rewrite(post_id, instruction=""):
     v = (res.get(0, {}).get("versions") or {}).get(post["lang"])
     if not v:
         raise llm.UserError("Claude가 글을 돌려주지 않았습니다. 다시 시도해 주세요.")
-    post.update(title=v["title"], caption=v["caption"], hashtags=v["hashtags"])
-    render_card(post, s)
-    _save_post(post)
+    with LOCK:  # Claude를 기다리는 동안 바뀐 다른 설정(글자 크기·확인 체크 등)은 살린다
+        post = get_post(post_id)
+        if not post:
+            raise llm.UserError("그사이 게시물이 삭제됐습니다.")
+        post.update(title=v["title"], caption=v["caption"], hashtags=v["hashtags"])
+        render_card(post, s)
+        _save_post(post)
     return post
 
 
@@ -412,13 +452,15 @@ def update_post(post_id, changes):
 def rerender_all():
     """로고·브랜드·글자 설정을 바꾼 뒤 모든 카드를 다시 합성 (무료, 몇 초)."""
     s = settings()
-    items = posts()
-    for i, post in enumerate(items):
+    ids = [p["id"] for p in posts()]
+    for i, pid in enumerate(ids):
         jobctl.check()
-        if photo_path(post["photo"]).exists():
+        post = get_post(pid)  # 하나씩 최신본을 읽는다 (그사이 고치거나 지운 게시물 존중)
+        if post and photo_path(post["photo"]).exists():
+            rev = post.get("rev", 0)
             render_card(post, s)
-            _save_post(post)
-        print(f"\r카드 다시 합성 {i + 1}/{len(items)}", end="", flush=True)
+            _save_post(post, if_rev=rev)
+        print(f"\r카드 다시 합성 {i + 1}/{len(ids)}", end="", flush=True)
     print()
 
 

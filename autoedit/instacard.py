@@ -3,8 +3,10 @@
 레이아웃: 위쪽은 사진, 아래로 갈수록 검게 번지는 그라데이션, 그 위에 큰 제목. 맨 위에 브랜드 로고(또는 이름).
 제목의 [대괄호] 부분은 강조색으로 칠한다. 예: "이집트에서 [절대 하면 안 되는] 3가지"
 """
+import contextlib
 import io
 import re
+import threading
 from pathlib import Path
 
 import numpy as np
@@ -89,14 +91,39 @@ def sharpness(img):
     return float(lap.var())
 
 
+_face = None
+_face_lock = threading.Lock()
+
+
+def _faces(img, width=640):
+    """얼굴 상자 목록. 영상 렌더링이 쓰는 검출기와 따로 만든다 (OpenCV 검출기는 여러 스레드가 함께 쓰면 안전하지 않음)."""
+    global _face
+    with _face_lock:
+        if _face is None:
+            try:
+                import cv2
+                from . import render
+                if not render.FACE_MODEL.exists():  # 처음이면 모델 받기 (영상 쪽 함수가 받아 둔다)
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        render._face_detector()
+                _face = cv2.FaceDetectorYN.create("onnx", np.fromfile(render.FACE_MODEL, np.uint8),
+                                                  np.array([], np.uint8), (320, 320), 0.7)
+            except Exception:
+                _face = False
+        if not _face:
+            return []
+        sw = min(width, img.width)
+        small = np.ascontiguousarray(np.asarray(img.resize((sw, max(1, round(sw * img.height / img.width)))))[:, :, ::-1])
+        _face.setInputSize((small.shape[1], small.shape[0]))
+        _, found = _face.detect(small)
+    k = img.width / sw
+    return [] if found is None else [tuple(float(v) * k for v in f[:4]) for f in found]
+
+
 def _focus_y(img):
     """세로로 자를 때 중심으로 삼을 높이(0~1). 얼굴이 있으면 얼굴, 없으면 살짝 위쪽."""
     try:
-        import contextlib
-        from .render import detect_faces
-        bgr = np.asarray(img)[:, :, ::-1].copy()
-        with contextlib.redirect_stdout(io.StringIO()):  # 영상용 안내 문구("오브젝트를 오른쪽에…")는 숨긴다
-            faces = detect_faces(bgr, width=640)
+        faces = _faces(img)
     except Exception:
         faces = []
     if not faces:
@@ -143,7 +170,9 @@ def _tokens(parts, lang):
     """줄바꿈 단위로 쪼갠다: 일본어는 글자 단위, 나머지는 띄어쓰기 단위. [(글자, 강조, 앞에_공백)]"""
     out, space = [], False
     for text, hl in parts:
-        for ch_or_word in (text if lang == "ja" else re.split(r"(\s+)", text)):
+        # 일본어: 글자 단위로 끊되 숫자·영어 단어(3,000円의 3,000 / iPhone)는 한 덩어리로
+        pieces = re.findall(r"[A-Za-z0-9０-９.,%'’\-]+|\s+|.", text) if lang == "ja" else re.split(r"(\s+)", text)
+        for ch_or_word in pieces:
             if not ch_or_word:
                 continue
             if ch_or_word.isspace():
@@ -236,8 +265,8 @@ def compose(photo, title, lang="ko", ratio="1:1", logo=None, brand="", opts=None
     canvas.paste(_cover(img, W, ph + overlap, _focus_y(photo)), (0, 0))
 
     # 그라데이션: 사진 아래쪽부터 검게. 진하기가 높을수록 더 위에서부터, 더 어둡게
-    g_h = int(H * (0.12 + 0.30 * grad)) + overlap
-    g_top = ph + overlap - g_h
+    g_top = max(0, ph - int(H * (0.12 + 0.30 * grad)))
+    g_h = ph + overlap - g_top
     alpha = np.zeros((H, 1), np.float32)
     alpha[g_top:g_top + g_h, 0] = np.linspace(0, 1, g_h, dtype=np.float32) ** 1.5
     alpha[g_top + g_h:, 0] = 1.0
