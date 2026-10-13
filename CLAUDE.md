@@ -27,7 +27,12 @@ All UI text and user-facing messages are **Korean**.
 - `autoedit/llm.py`: all Claude calls. It uses `claude-opus-5-5` through `client.beta.messages.stream` with the `server-side-fallback-2026-07-01` beta, `fallbacks="default"`, structured outputs via `output_config.format`, and `UserError` for messages shown to users.
 - `autoedit/imagegen.py`: OpenAI images (`OPENAI_IMAGE_MODEL`, default `gpt-image-1.5`). It draws no text in the image; captions are composited with PIL.
 - `autoedit/subtitles.py`, `render.py`, `privacy.py`, `illustrate.py`, `transcribe.py`, `env.py`: as named.
-- `web/`: vanilla HTML/CSS/JS (neo-brutalist cream cards on navy). No build step.
+- `web/`: vanilla HTML/CSS/JS (neo-brutalist cream cards on navy). No build step. `web/insta.*` is the Instagram page (`/insta`).
+- Instagram feature: `autoedit/instacard.py` composes cards locally with PIL (0 cost). `autoedit/insta.py` handles the photo/post store in `insta/` (gitignored), dHash dedupe, frame import from projects, and Claude writing (`llm.write_insta_posts`).
+  `autoedit/instapub.py` handles official Instagram API with Instagram Login publishing (graph.instagram.com v25.0), 60-day token refresh,
+  and temp public hosting (litterbox / Cloudinary, because Meta must cURL a public `image_url`). It also runs the queue scheduler thread, which is guarded by the `insta/scheduler.lock` process lock.
+  It only uses the user's own photos (no screenshot reposting: copyright plus Instagram's 2026 originality rules). There are no unofficial login bots. Instagram allows max 5 hashtags.
+  Test publishing against a local mock Graph server (monkeypatch `instapub.API` / `host_image`). Never post to the user's real accounts in tests.
 
 ## Windows / environment gotchas (learned the hard way)
 - **No VC++ runtime on this PC.** The runtime DLLs were copied next to `ctranslate2.dll`. Entry points must

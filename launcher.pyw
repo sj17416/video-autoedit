@@ -96,8 +96,8 @@ def main():
         pass  # 최신 서버가 이미 떠 있음
     else:
         if code is not None:
-            busy = request("/api/job")[1].get("running")
-            if busy:
+            job = request("/api/job")[1]
+            if job.get("running") or job.get("publishing"):  # 영상 작업 중이거나 인스타에 올리는 중
                 message("이전 버전 앱에서 작업이 진행 중입니다.\n작업이 끝난 뒤 다시 실행하면 새 버전으로 바뀝니다.")
                 open_window()
                 return
