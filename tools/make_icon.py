@@ -1,4 +1,8 @@
-"""앱 아이콘(assets/icon.ico, web/icon.png) 생성 — 웹앱과 같은 스타일 (노란 둥근 사각형 + 굵은 검은 테두리)."""
+"""앱 아이콘 생성 — 웹앱과 같은 스타일 (노란 둥근 사각형 + 굵은 검은 테두리).
+
+- assets/icon.ico, assets/icon.png, web/icon.png: 영상 자동 편집기
+- assets/icon_insta.ico, assets/icon_insta.png: 인스타 게시물 만들기 (바탕화면 아이콘)
+"""
 from pathlib import Path
 
 from PIL import Image, ImageDraw
@@ -31,13 +35,45 @@ def draw(size=1024):
     return img
 
 
-def main():
-    big = draw(1024)
+def draw_insta(size=1024):
+    """인스타 게시물 아이콘: 겹쳐진 사진 카드 + 아래쪽 노란 제목 줄 (만들어지는 카드의 모습)."""
+    s = size / 1024
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    r, b = int(200 * s), int(46 * s)
+    d.rounded_rectangle([110 * s, 110 * s, 990 * s, 990 * s], radius=r, fill=INK)          # 그림자
+    d.rounded_rectangle([40 * s, 40 * s, 920 * s, 920 * s], radius=r, fill=CORAL, outline=INK, width=b)
+    # 뒤쪽 카드 (여러 장 = 여러 언어)
+    d.rounded_rectangle([340 * s, 150 * s, 800 * s, 720 * s], radius=int(55 * s), fill=CREAM, outline=INK,
+                        width=int(32 * s))
+    # 앞쪽 카드
+    card = [150 * s, 230 * s, 650 * s, 850 * s]
+    d.rounded_rectangle(card, radius=int(55 * s), fill=CREAM, outline=INK, width=int(36 * s))
+    # 사진 영역 (하늘 + 산)
+    d.rectangle([180 * s, 262 * s, 620 * s, 610 * s], fill=(110, 170, 225, 255))
+    d.polygon([(180 * s, 610 * s), (360 * s, 380 * s), (540 * s, 610 * s)], fill=(79, 176, 165, 255))
+    d.polygon([(400 * s, 610 * s), (520 * s, 450 * s), (620 * s, 610 * s)], fill=(46, 140, 132, 255))
+    d.ellipse([520 * s, 300 * s, 600 * s, 380 * s], fill=YELLOW)                           # 해
+    # 어두운 아래쪽 + 제목 두 줄 (노란 줄 = [강조])
+    d.rectangle([180 * s, 610 * s, 620 * s, 822 * s], fill=INK)
+    d.rounded_rectangle([225 * s, 660 * s, 575 * s, 712 * s], radius=int(26 * s), fill=YELLOW)
+    d.rounded_rectangle([265 * s, 740 * s, 535 * s, 788 * s], radius=int(24 * s), fill=CREAM)
+    return img
+
+
+def save(img, stem, web=False):
     (ROOT / "assets").mkdir(exist_ok=True)
-    big.resize((256, 256), Image.LANCZOS).save(ROOT / "assets" / "icon.ico",
-                                               sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
-    big.resize((256, 256), Image.LANCZOS).save(ROOT / "assets" / "icon.png")
-    big.resize((64, 64), Image.LANCZOS).save(ROOT / "web" / "icon.png")
+    small = img.resize((256, 256), Image.LANCZOS)
+    small.save(ROOT / "assets" / f"{stem}.ico",
+               sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
+    small.save(ROOT / "assets" / f"{stem}.png")
+    if web:
+        img.resize((64, 64), Image.LANCZOS).save(ROOT / "web" / "icon.png")
+
+
+def main():
+    save(draw(1024), "icon", web=True)
+    save(draw_insta(1024), "icon_insta")
     print("ok")
 
 
