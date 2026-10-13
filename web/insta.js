@@ -55,6 +55,29 @@ function el(tag, props = {}, ...kids) {
   return e;
 }
 
+// ---------------------------------------------------------------- 탭 (사진 / 게시물 / 예약)
+let view = "photos";
+function showView(name) {
+  view = name;
+  for (const b of $$(".maintabs button")) b.classList.toggle("on", b.dataset.view === name);
+  for (const v of ["photos", "posts", "queue"]) $(`#view-${v}`).hidden = v !== name;
+}
+for (const b of $$(".maintabs button")) b.onclick = () => showView(b.dataset.view);
+$("#logBtn").onclick = () => {
+  const log = $("#log");
+  log.hidden = !log.hidden;
+  if (!log.hidden) log.scrollTop = log.scrollHeight;
+};
+$("#clearPhotosBtn").onclick = async () => {
+  if (jobRunning) return toast("작업이 끝난 뒤에 지울 수 있어요.");
+  if (!S || !S.photos.length) return toast("지울 사진이 없습니다.");
+  if (!confirm(`사진 ${S.photos.length}장과 그 사진으로 만든 게시물을 모두 지울까요? (예약된 게시물도 함께 취소됩니다)`)) return;
+  for (const ph of S.photos) await del(`/api/insta/photos/${ph.id}`);
+  selPhotos.clear();
+  toast("사진 목록을 비웠습니다.", "info");
+  load();
+};
+
 // ---------------------------------------------------------------- 상태 불러오기
 async function load() {
   S = await api("/api/insta/state");
@@ -299,8 +322,9 @@ function renderPhotos() {
         } }, "🗑"))));
     grid.append(card);
   }
-  if (!S.photos.length) grid.append(el("p", { class: "hint" }, "아직 사진이 없습니다. 위에 내 사진을 올리거나, 내 영상에서 장면을 가져오세요."));
-  $("#photoSummary").textContent = S.photos.length ? `${S.photos.length}장` : "";
+  if (!S.photos.length) grid.append(el("p", { class: "hint" }, "아직 사진이 없습니다. 왼쪽 '데이터 입력'에서 사진을 올리거나, 내 영상에서 장면을 가져오세요."));
+  $("#photoSummary").textContent = S.photos.length || "";
+  $("#clearPhotosBtn").disabled = !S.photos.length;
   updateGenerateInfo();
 }
 function updateGenerateInfo() {
@@ -339,6 +363,7 @@ function uploadPhotos(files) {
 $("#photoInput").onchange = (e) => { uploadPhotos(e.target.files); e.target.value = ""; };
 $("#folderInput").onchange = (e) => { uploadPhotos(e.target.files); e.target.value = ""; };
 const dz = $("#dropzone");
+dz.onclick = () => $("#photoInput").click();   // 사진 고르는 칸은 왼쪽 패널에 있다
 dz.ondragover = (e) => { e.preventDefault(); dz.classList.add("over"); };
 dz.ondragleave = () => dz.classList.remove("over");
 dz.ondrop = (e) => { e.preventDefault(); dz.classList.remove("over"); uploadPhotos(e.dataTransfer.files); };
@@ -375,7 +400,12 @@ async function pollJob(force) {
   const atBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 20;
   if (log.textContent !== j.log) log.textContent = j.log;
   if (atBottom || force) log.scrollTop = log.scrollHeight;
-  if (lastJobRunning && !j.running) await load();
+  if (lastJobRunning && !j.running) {
+    const label = j.label || "";
+    await load();
+    if (!j.error && /게시물|다시 쓰기|카드/.test(label)) showView("posts");   // 끝난 작업에 맞는 화면으로
+    else if (!j.error && /장면/.test(label)) showView("photos");
+  }
   lastJobRunning = j.running;
   updateGenerateInfo();
   $("#rerenderBtn").disabled = $("#framesBtn").disabled = j.running;
@@ -436,7 +466,7 @@ function renderPosts() {
   const back = keep && $(`#postGrid .post[data-id="${keep.id}"] [data-k="${keep.k}"]`);
   if (back) { back.focus(); try { back.setSelectionRange(keep.s, keep.e); } catch {} }
   const risky = S.posts.filter((p) => !p.can_autopost).length;
-  $("#postSummary").textContent = S.posts.length ? `${S.posts.length}개${risky ? ` · ⚠ 확인 필요 ${risky}개` : ""}` : "";
+  $("#postSummary").textContent = S.posts.length ? `${S.posts.length}${risky ? ` ⚠${risky}` : ""}` : "";
 }
 function postNode(p, qstatus) {
   const node = $("#postTpl").content.firstElementChild.cloneNode(true);
@@ -546,7 +576,7 @@ function refreshPostNode(p) {
 }
 function renderPostsSummaryOnly() {
   const risky = S.posts.filter((p) => !p.can_autopost).length;
-  $("#postSummary").textContent = `${S.posts.length}개${risky ? ` · ⚠ 확인 필요 ${risky}개` : ""}`;
+  $("#postSummary").textContent = `${S.posts.length}${risky ? ` ⚠${risky}` : ""}`;
 }
 async function saveAllDirty() {
   for (const id of Object.keys(edits)) await savePost(id);
@@ -619,7 +649,7 @@ function renderQueue() {
   }
   if (!S.queue.length) box.append(el("p", { class: "hint" }, "예약한 게시물이 없습니다. 게시물을 선택하고 '자동 예약'을 누르면 계정별 하루 개수·시간대에 맞춰 고르게 배치합니다."));
   const c = (s) => S.queue.filter((i) => i.status === s).length;
-  $("#queueSummary").textContent = S.queue.length ? `예약 ${c("scheduled")} · 올림 ${c("published")} · 실패 ${c("failed")}` : "";
+  $("#queueSummary").textContent = S.queue.length ? `${c("scheduled")}${c("failed") ? ` ⚠${c("failed")}` : ""}` : "";
 }
 
 window.addEventListener("beforeunload", (e) => {
