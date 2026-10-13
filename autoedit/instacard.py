@@ -49,6 +49,19 @@ def _font_file(kind):
     return _font_cache[kind]
 
 
+_HANGUL = re.compile(r"[가-힣ㄱ-ㅎㅏ-ㅣ]")
+_KANA = re.compile(r"[ぁ-んァ-ヺ一-龥]")
+
+
+def kind_for(text, lang):
+    """글자에 맞는 폰트 종류. 영어 카드에 한글을 직접 써 넣어도 네모로 깨지지 않게 글자를 먼저 본다."""
+    if _HANGUL.search(text or ""):
+        return "ko"
+    if _KANA.search(text or ""):
+        return "ja"
+    return "ko" if lang == "ko" else "ja" if lang == "ja" else "latin"
+
+
 def font_for(lang, size, kind=None):
     kind = kind or ("ko" if lang == "ko" else "ja" if lang == "ja" else "latin")
     found = _font_file(kind) or _font_file("ui")
@@ -207,16 +220,18 @@ def _fit_title(title, lang, box_w, box_h, scale):
     parts = parse_highlight(_EMOJI.sub("", title).strip())
     if not parts:
         return None, [], 0
+    kind = kind_for("".join(t for t, _ in parts), lang)
+    wrap_lang = "ja" if kind == "ja" and lang != "ko" else lang   # 줄바꿈도 실제 글자 기준으로
     start = int(box_h * 0.42 * scale)
     for size in range(max(start, 24), 21, -2):
-        font = font_for(lang, size)
-        lines = wrap(parts, font, box_w, lang)
-        lh = size * (1.08 if lang not in ("ko", "ja") else 1.22)
+        font = font_for(lang, size, kind)
+        lines = wrap(parts, font, box_w, wrap_lang)
+        lh = size * (1.08 if kind == "latin" else 1.22)
         too_wide = any(sum(font.getlength(t) for t, _ in ln) > box_w for ln in lines)
         if len(lines) * lh <= box_h and not too_wide:
             return font, lines, lh
-    font = font_for(lang, 22)
-    return font, wrap(parts, font, box_w, lang), 22 * 1.2
+    font = font_for(lang, 22, kind)
+    return font, wrap(parts, font, box_w, wrap_lang), 22 * 1.2
 
 
 # ---------------------------------------------------------------- 로고

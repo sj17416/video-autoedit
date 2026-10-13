@@ -10,186 +10,196 @@
 <link rel="icon" href="/static/icon.png">
 </head>
 <body>
-<header class="topbar">
-  <div class="brand"><img class="logo-img" src="/static/icon.png" alt=""> 인스타 게시물 만들기</div>
-  <div class="top-actions">
-    <a class="pill" href="/">← 영상 편집기</a>
-    <button id="openExportBtn" class="pill" title="저장 폴더/인스타_게시물 열기">저장 폴더 열기</button>
-  </div>
-</header>
 <div id="toast" class="toast" hidden></div>
 
-<div class="layout">
-  <!-- ================= 왼쪽: 설정 ================= -->
-  <div class="col">
-    <section class="card">
-      <h2><span class="num gear">🌐</span> 작성 언어 · 글쓰기 <span id="savedBadge" class="saved" hidden>저장됨</span></h2>
-      <div id="langChecks" class="lang-checks"></div>
-      <p class="hint">언어마다 그 나라 사람이 멈춰서 볼 만한 제목·본문을 따로 씁니다(직역 아님).</p>
-      <label class="field">계정 주제
-        <input type="text" data-s="topic" placeholder="예: 이집트 여행, 직장인 점심, 강아지 일상">
-      </label>
-      <label class="field">스타일 샘플 (작성 예시)
-        <textarea data-s="style" rows="4" placeholder="[제목] 가고 싶은 여행지 [본문] 여기 진짜 대박이에요… (이모지 활용)"></textarea>
-        <small>예시를 넣으면 Claude가 제목·본문 구성과 말투를 따라 씁니다.</small>
-      </label>
-      <label class="field inline-field">해시태그
-        <select data-s="hashtags">
-          <option value="0">넣지 않음</option><option value="3">3개</option><option value="5">5개 (인스타 최대)</option>
-        </select>
-      </label>
-      <p class="hint">인스타는 2025년 12월부터 게시물당 해시태그를 5개까지만 허용합니다. 적고 정확한 태그가 낫습니다.</p>
-      <p class="hint" id="llmHint"></p>
-    </section>
+<div class="app">
+  <!-- ══════════════ 왼쪽: 설정 패널 ══════════════ -->
+  <aside class="side">
+    <div class="side-top">
+      <a class="back" href="/" title="영상 편집기로 돌아가기">←</a>
+      <span class="side-title">인스타 게시물 만들기</span>
+      <span id="savedBadge" class="saved" hidden>저장됨</span>
+    </div>
 
-    <section class="card">
-      <h2><span class="num gear">🏷</span> 로고 · 카드 모양</h2>
-      <label class="field">브랜드 이름 (로고 이미지가 없을 때 위에 표시)
-        <input type="text" data-s="brand" maxlength="30" placeholder="예: 구름빵태양">
-      </label>
-      <div class="logo-row">
-        <div id="logoBox" class="logo-box checker"><span class="muted">로고 없음</span></div>
-        <div class="logo-btns">
-          <label class="btn small">로고 변경<input type="file" id="logoInput" accept="image/*" hidden></label>
-          <button id="logoRemoveBtn" class="btn small ghost danger">제거</button>
-        </div>
-      </div>
-      <div class="field">로고 위치
-        <div class="seg" data-seg="logo_pos">
-          <button data-v="left">왼쪽</button><button data-v="center">가운데</button><button data-v="right">오른쪽</button>
-        </div>
-      </div>
-      <div class="field">비율
-        <div class="seg" data-seg="ratio">
-          <button data-v="1:1">1:1 정사각형</button><button data-v="4:5">4:5 세로 (피드에서 더 크게)</button>
-        </div>
-      </div>
-      <label class="field">글자 크기 <b><span data-show="font_scale"></span>배</b>
-        <input type="range" data-s="font_scale" min="0.6" max="1.6" step="0.05">
-      </label>
-      <label class="field">그라데이션 진하기 <b><span data-show="gradient"></span></b>
-        <input type="range" data-s="gradient" min="0" max="1" step="0.05">
-      </label>
-      <label class="field">사진 높이 <b><span data-show="photo_ratio"></span></b>
-        <input type="range" data-s="photo_ratio" min="0.45" max="0.8" step="0.01">
-        <small>나머지 아래 부분이 제목 자리입니다.</small>
-      </label>
-      <label class="check-line"><input type="checkbox" data-s="upper"> 영어·유럽어 제목은 대문자로</label>
-      <label class="check-line"><input type="checkbox" data-s="enhance"> 사진 자동 보정 (대비·채도·선명도 살짝)</label>
-      <button id="rerenderBtn" class="btn yellow">모든 카드에 다시 적용 (무료)</button>
-      <p class="hint">카드는 이 PC에서 바로 합성합니다. 몇 장을 만들든 그림 비용은 0원이에요.</p>
-    </section>
+    <div class="side-scroll">
+      <section class="grp">
+        <h3>작성 언어 설정</h3>
+        <div id="langChecks" class="lang-grid"></div>
+        <p class="note">고른 언어마다 그 나라 사람에게 먹히는 제목·본문을 따로 씁니다. 직역이 아닙니다.</p>
+      </section>
 
-    <section class="card">
-      <h2><span class="num gear">🔗</span> 계정 연결 · 자동 업로드</h2>
-      <div id="accountList" class="account-list"></div>
-      <details class="fine" id="addAccountBox">
-        <summary>+ 인스타 계정 추가</summary>
-        <label class="field">액세스 토큰 (앱 대시보드 → Generate token)
-          <input type="password" id="tokenInput" autocomplete="off" placeholder="IGAA…">
-        </label>
-        <label class="field inline-field">이 계정에 올릴 언어 <select id="tokenLang"></select></label>
-        <button id="addAccountBtn" class="btn yellow small">연결 확인 후 추가</button>
-        <details class="howto">
-          <summary>토큰 받는 방법 (처음 한 번, 약 10분)</summary>
-          <ol>
-            <li>인스타 앱 → 프로필 편집 → <b>프로페셔널 계정으로 전환</b> (크리에이터). 계정은 공개여야 합니다.</li>
-            <li><a href="https://developers.facebook.com/apps/creation/" target="_blank" rel="noopener">developers.facebook.com/apps</a> → 앱 만들기.
-              사용 사례는 <b>Instagram에서 메시지 및 콘텐츠 관리</b>(없으면 '기타' → 유형 <b>비즈니스</b>). 앱 이름에 Instagram·Facebook은 넣지 마세요. 비즈니스 포트폴리오는 '아직 연결 안 함'.</li>
-            <li>왼쪽 메뉴 Instagram → <b>Instagram 로그인을 사용한 API 설정</b> → 필요한 권한 모두 추가 + <code>instagram_business_content_publish</code>.</li>
-            <li><b>액세스 토큰 생성</b>에서 '계정 추가' → 인스타 로그인. 앱 역할에 '대기 중'이 보이면 인스타 앱 → 설정 → 웹사이트 권한 → 앱 및 웹사이트 → <b>테스터 초대</b>를 수락하세요.</li>
-            <li>계정 옆 <b>Generate token</b> → 나온 토큰을 바로 복사해서 위 칸에 붙여 넣기 (60일짜리, 이 앱이 자동으로 연장).</li>
-            <li>계정이 여러 개면 3~5를 계정마다 반복하고, 계정마다 언어를 정해 주세요.</li>
-          </ol>
-          <p class="hint">내 계정만 쓰는 앱은 앱 검수·비즈니스 인증이 필요 없습니다(개발 모드 그대로). 첫 게시물은 로그아웃한 브라우저에서 잘 보이는지 한 번 확인하세요.</p>
-        </details>
-      </details>
-      <div class="pub-settings">
-        <label class="check-line"><input type="checkbox" id="autoChk"> 예약 시간이 되면 자동으로 올리기</label>
-        <label class="field inline-field">이미지 호스팅
-          <select id="hostSel">
-            <option value="litterbox">litterbox (가입 없음, 1시간 뒤 자동 삭제)</option>
-            <option value="cloudinary">Cloudinary (무료 계정, 더 안정적)</option>
-          </select>
-        </label>
-        <label class="field">Cloudinary 연결 (선택) <em id="cloudMasked" class="muted"></em>
-          <input type="password" id="cloudUrl" autocomplete="off" placeholder="cloudinary://API키:API비밀@클라우드이름">
-          <small><a href="https://cloudinary.com/users/register_free" target="_blank" rel="noopener">무료 가입</a> → 대시보드의 'API environment variable' 값을 붙여 넣으세요. 넣어 두면 한쪽이 실패해도 다른 쪽으로 자동 전환합니다.</small>
-        </label>
-        <p class="hint">인스타 서버는 공개 인터넷 주소에서 이미지를 가져갑니다. 올리기 직전에 임시 호스팅에 올리고, 인스타가 가져간 뒤 지워집니다(게시물은 어차피 공개되므로 노출 문제 없음).</p>
-        <p class="hint" id="schedHint"></p>
-      </div>
-    </section>
-  </div>
-
-  <!-- ================= 오른쪽 ================= -->
-  <div class="col wide">
-    <section class="card">
-      <h2><span class="num">1</span> 사진 <span class="muted small" id="photoSummary"></span></h2>
-      <div class="drop-row">
-        <label class="dropzone" id="dropzone">
+      <section class="grp">
+        <h3>데이터 입력</h3>
+        <label class="wide-btn">
           <input type="file" id="photoInput" accept="image/*" multiple hidden>
-          <strong>내 사진을 끌어다 놓거나 클릭해서 선택</strong>
-          <span>여러 장 한 번에 · 같은 사진은 자동으로 걸러냅니다</span>
+          <span class="ico">🖼</span> 사진 추가
         </label>
-        <div class="side-actions">
-          <label class="btn small">📁 폴더 업로드<input type="file" id="folderInput" webkitdirectory multiple hidden></label>
-          <div class="frames-box">
-            <b>🎬 내 영상에서 장면 가져오기</b>
-            <select id="projectSel"></select>
-            <label class="inline">장수 <input type="number" id="frameCount" min="1" max="30" value="8"></label>
-            <button id="framesBtn" class="btn small">선명한 장면 뽑기</button>
+        <label class="wide-btn">
+          <input type="file" id="folderInput" webkitdirectory multiple hidden>
+          <span class="ico">📁</span> 폴더 업로드
+        </label>
+        <div class="sub-box">
+          <div class="sub-title">🎬 내 영상에서 장면 가져오기</div>
+          <select id="projectSel"></select>
+          <div class="row2">
+            <label class="mini">장수 <input type="number" id="frameCount" min="1" max="30" value="8"></label>
+            <button id="framesBtn" class="wide-btn tight">가져오기</button>
           </div>
         </div>
-      </div>
-      <div id="uploadProgress" class="upload-progress" hidden><div></div></div>
-      <div class="tab-bar">
-        <div>
-          <button id="selAllPhotos" class="btn small">전체 선택</button>
-          <button id="selNonePhotos" class="btn small">선택 해제</button>
+        <button id="clearPhotosBtn" class="wide-btn danger"><span class="ico">🗑</span> 목록 비우기</button>
+      </section>
+
+      <section class="grp">
+        <h3>로고 설정</h3>
+        <div id="logoBox" class="logo-box checker"><span class="muted">로고 없음</span></div>
+        <label class="wide-btn">
+          <input type="file" id="logoInput" accept="image/*" hidden>
+          <span class="ico">✎</span> 로고 변경
+        </label>
+        <button id="logoRemoveBtn" class="wide-btn ghost">제거</button>
+        <label class="fld">로고가 없을 때 쓸 이름
+          <input type="text" data-s="brand" maxlength="30" placeholder="예: 구름빵태양">
+        </label>
+        <div class="fld">로고 위치
+          <div class="seg" data-seg="logo_pos">
+            <button data-v="left">왼쪽</button><button data-v="center">중간</button><button data-v="right">오른쪽</button>
+          </div>
         </div>
+      </section>
+
+      <section class="grp">
+        <h3>카드 모양</h3>
+        <div class="fld">비율
+          <div class="seg" data-seg="ratio">
+            <button data-v="1:1">1:1 정사각형</button><button data-v="4:5">4:5 세로</button>
+          </div>
+        </div>
+        <label class="fld">글자 크기 <b><span data-show="font_scale"></span></b>
+          <input type="range" data-s="font_scale" min="0.6" max="1.6" step="0.05">
+        </label>
+        <label class="fld">그라데이션 <b><span data-show="gradient"></span></b>
+          <input type="range" data-s="gradient" min="0" max="1" step="0.05">
+        </label>
+        <label class="fld">사진 높이 <b><span data-show="photo_ratio"></span></b>
+          <input type="range" data-s="photo_ratio" min="0.45" max="0.8" step="0.01">
+        </label>
+        <label class="chk"><input type="checkbox" data-s="upper"> 영어·유럽어 제목은 대문자로</label>
+        <label class="chk"><input type="checkbox" data-s="enhance"> 사진 자동 보정</label>
+        <button id="rerenderBtn" class="wide-btn go">모든 카드에 다시 적용 (무료)</button>
+      </section>
+
+      <section class="grp">
+        <h3>스타일 샘플 (작성 예시)</h3>
+        <textarea data-s="style" rows="4" placeholder="[제목] 가고 싶은 여행지&#10;[본문] 여기 진짜 대박이에요… (이모지 활용)"></textarea>
+        <p class="note">샘플 양식을 입력하면 AI가 제목과 본문 구성을 따라서 씁니다.</p>
+        <label class="fld">계정 주제
+          <input type="text" data-s="topic" placeholder="예: 이집트 여행, 강아지 일상">
+        </label>
+        <label class="fld">해시태그
+          <select data-s="hashtags">
+            <option value="0">넣지 않음</option><option value="3">3개</option><option value="5">5개 (인스타 최대)</option>
+          </select>
+        </label>
+        <p class="note" id="llmHint"></p>
+      </section>
+
+      <section class="grp">
+        <h3>계정 연결 · 자동 업로드</h3>
+        <div id="accountList" class="account-list"></div>
+        <details id="addAccountBox" class="drop">
+          <summary>+ 인스타 계정 추가</summary>
+          <label class="fld">액세스 토큰
+            <input type="password" id="tokenInput" autocomplete="off" placeholder="IGAA…">
+          </label>
+          <label class="fld">이 계정에 올릴 언어 <select id="tokenLang"></select></label>
+          <button id="addAccountBtn" class="wide-btn go">연결 확인 후 추가</button>
+          <details class="drop">
+            <summary>토큰 받는 방법 (처음 한 번, 약 10분)</summary>
+            <ol>
+              <li>인스타 앱 → 프로필 편집 → <b>프로페셔널 계정으로 전환</b>(크리에이터). 계정은 공개여야 합니다.</li>
+              <li><a href="https://developers.facebook.com/apps/creation/" target="_blank" rel="noopener">developers.facebook.com/apps</a> → 앱 만들기.
+                사용 사례는 <b>Instagram에서 메시지 및 콘텐츠 관리</b>(없으면 '기타' → 유형 <b>비즈니스</b>). 비즈니스 포트폴리오는 '아직 연결 안 함'.</li>
+              <li>왼쪽 메뉴 Instagram → <b>Instagram 로그인을 사용한 API 설정</b> → 필요한 권한 모두 추가 + <code>instagram_business_content_publish</code>.</li>
+              <li><b>액세스 토큰 생성</b>에서 '계정 추가' → 인스타 로그인. 앱 역할에 '대기 중'이 보이면 인스타 앱 → 설정 → 웹사이트 권한 → 앱 및 웹사이트 → <b>테스터 초대</b> 수락.</li>
+              <li>계정 옆 <b>Generate token</b> → 나온 토큰을 위 칸에 붙여 넣기 (60일짜리, 앱이 자동 연장).</li>
+            </ol>
+            <p class="note">내 계정만 쓰는 앱은 앱 검수·비즈니스 인증이 필요 없습니다.</p>
+          </details>
+        </details>
+        <label class="chk"><input type="checkbox" id="autoChk"> 예약 시간이 되면 자동으로 올리기</label>
+        <label class="fld">이미지 호스팅
+          <select id="hostSel">
+            <option value="litterbox">litterbox (가입 없음)</option>
+            <option value="cloudinary">Cloudinary (무료 계정)</option>
+          </select>
+        </label>
+        <label class="fld">Cloudinary 연결 (선택) <em id="cloudMasked" class="muted"></em>
+          <input type="password" id="cloudUrl" autocomplete="off" placeholder="cloudinary://키:비밀@이름">
+        </label>
+        <p class="note">인스타 서버가 공개 주소에서 이미지를 가져가므로, 올리기 직전에 임시 호스팅에 올렸다가 지웁니다.</p>
+        <p class="note" id="schedHint"></p>
+      </section>
+    </div>
+  </aside>
+
+  <!-- ══════════════ 오른쪽: 작업 영역 ══════════════ -->
+  <main class="main">
+    <!-- 상단 실행 바 -->
+    <div class="runbar">
+      <label class="own-chk"><input type="checkbox" id="ownChk"> 내가 찍었거나 쓸 권리가 있는 사진입니다</label>
+      <input type="text" id="instructionInput" placeholder="추가 요청 (선택) — 예: 더 궁금하게, 반말로">
+      <button id="generateBtn" class="go-btn">▶ 게시물 만들기</button>
+      <span class="run-info" id="generateInfo"></span>
+      <span id="statusPill" class="status">대기</span>
+      <button id="cancelBtn" class="mini-btn danger" hidden>■ 중지</button>
+      <button id="logBtn" class="mini-btn" title="진행 기록 보기">기록</button>
+      <button id="openExportBtn" class="mini-btn" title="저장 폴더 열기">폴더</button>
+    </div>
+    <div id="uploadProgress" class="upload-progress" hidden><div></div></div>
+    <pre id="log" class="log" hidden></pre>
+
+    <!-- 탭 -->
+    <nav class="maintabs">
+      <button data-view="photos" class="on">사진 <em id="photoSummary"></em></button>
+      <button data-view="posts">게시물 <em id="postSummary"></em></button>
+      <button data-view="queue">예약 · 업로드 <em id="queueSummary"></em></button>
+    </nav>
+
+    <!-- 사진 -->
+    <section id="view-photos" class="view">
+      <div class="viewbar">
+        <div><button id="selAllPhotos" class="mini-btn">전체 선택</button>
+          <button id="selNonePhotos" class="mini-btn">선택 해제</button></div>
+        <span class="muted">사진을 눌러 고르고, 위의 <b>게시물 만들기</b>를 누르세요</span>
       </div>
+      <label class="dropzone" id="dropzone">
+        <strong>사진을 여기에 끌어다 놓으세요</strong>
+        <span>왼쪽 '사진 추가'로도 올릴 수 있어요 · 같은 사진은 자동으로 걸러냅니다</span>
+      </label>
       <div id="photoGrid" class="photo-grid"></div>
-      <div class="generate-box">
-        <label class="check-line own"><input type="checkbox" id="ownChk"> 선택한 사진은 <b>내가 찍었거나 쓸 권리가 있는 사진</b>입니다 (남의 게시물 캡처 X)</label>
-        <input type="text" id="instructionInput" placeholder="추가 요청 (선택) — 예: 더 궁금하게, 반말로, 숫자 넣어서">
-        <div class="run-row">
-          <button id="generateBtn" class="btn yellow big">▶ 게시물 만들기</button>
-          <span class="muted" id="generateInfo"></span>
-        </div>
+    </section>
+
+    <!-- 게시물 -->
+    <section id="view-posts" class="view" hidden>
+      <div class="viewbar">
+        <div><button id="selAllPosts" class="mini-btn">전체 선택</button>
+          <button id="selNonePosts" class="mini-btn">선택 해제</button></div>
+        <div><button id="exportBtn" class="mini-btn">폴더에 저장</button>
+          <button id="carouselBtn" class="mini-btn">슬라이드로 묶어 예약</button>
+          <button id="scheduleBtn" class="mini-btn go">자동 예약</button></div>
       </div>
-    </section>
-
-    <section class="card">
-      <h2><span class="num">⏳</span> 진행 상황 <span id="statusPill" class="status">대기</span>
-        <button id="cancelBtn" class="btn small danger" hidden>■ 중지</button></h2>
-      <pre id="log" class="log short"></pre>
-    </section>
-
-    <section class="card">
-      <h2><span class="num">2</span> 게시물 <span class="muted small" id="postSummary"></span></h2>
       <nav class="tabs" id="langTabs"></nav>
-      <div class="tab-bar">
-        <div>
-          <button id="selAllPosts" class="btn small">전체 선택</button>
-          <button id="selNonePosts" class="btn small">선택 해제</button>
-        </div>
-        <div>
-          <button id="exportBtn" class="btn small">선택 → 폴더에 저장</button>
-          <button id="carouselBtn" class="btn small">선택 → 슬라이드로 묶어 예약</button>
-          <button id="scheduleBtn" class="btn small yellow">선택 → 자동 예약</button>
-        </div>
-      </div>
-      <p class="hint">제목의 <code>[대괄호]</code> 부분은 노란색으로 강조됩니다. 고친 뒤 <b>저장</b>을 누르면 카드가 바로 다시 만들어집니다.</p>
       <div id="postGrid" class="post-grid"></div>
     </section>
 
-    <section class="card">
-      <h2><span class="num">3</span> 예약 · 업로드 <span class="muted small" id="queueSummary"></span></h2>
+    <!-- 예약 -->
+    <section id="view-queue" class="view" hidden>
+      <div class="viewbar">
+        <span class="muted">앱이 켜져 있는 동안 30초마다 확인해서 시간이 된 게시물을 올립니다.</span>
+      </div>
       <div id="queueList" class="queue-list"></div>
-      <p class="hint">앱이 켜져 있는 동안 30초마다 확인해서 시간이 된 게시물을 올립니다. PC가 꺼져 있으면 켠 뒤에 밀린 것부터 올립니다.</p>
     </section>
-  </div>
+  </main>
 </div>
 
 <div id="modal" class="modal" hidden>
@@ -207,7 +217,7 @@
       <label>제목 <input type="text" data-k="title"></label>
       <label>본문 <textarea rows="5" data-k="caption"></textarea></label>
       <label>해시태그 <input type="text" data-k="hashtags" placeholder="쉼표나 띄어쓰기로 구분"></label>
-      <details><summary>이 카드만 모양 바꾸기</summary>
+      <details><summary>글자 스타일 및 위치 조정</summary>
         <label>글자 크기 <input type="range" min="0.6" max="1.6" step="0.05" data-o="font_scale"></label>
         <label>그라데이션 <input type="range" min="0" max="1" step="0.05" data-o="gradient"></label>
         <label>사진 높이 <input type="range" min="0.45" max="0.8" step="0.01" data-o="photo_ratio"></label>
