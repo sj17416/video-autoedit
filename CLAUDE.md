@@ -28,6 +28,9 @@ All UI text and user-facing messages are **Korean**.
 - `autoedit/imagegen.py`: OpenAI images (`OPENAI_IMAGE_MODEL`, default `gpt-image-1.5`). It draws no text in the image; captions are composited with PIL.
 - `autoedit/subtitles.py`, `render.py`, `privacy.py`, `illustrate.py`, `transcribe.py`, `env.py`: as named.
 - `web/`: vanilla HTML/CSS/JS (neo-brutalist cream cards on navy). No build step.
+- `blog_growth/`: separate weekly Tistory blog analyzer (`python -m blog_growth`). Reads Search Console + GA4 with a
+  service-account key, picks posts with rising clicks and above-median engagement, has Claude (via `autoedit.llm.ask`)
+  propose improvements/adjacent topics and write drafts, and writes an HTML report. It never publishes.
 
 ## Windows / environment gotchas (learned the hard way)
 - **No VC++ runtime on this PC.** The runtime DLLs were copied next to `ctranslate2.dll`. Entry points must

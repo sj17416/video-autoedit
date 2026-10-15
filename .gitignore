@@ -34,3 +34,9 @@ venv/
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# ----- 블로그 분석기 -----
+# 구글 서비스 계정 키, 내 블로그 설정, 보고서/초안
+blog_growth/google_key.json
+blog_growth/config.json
+blog_growth/output/
