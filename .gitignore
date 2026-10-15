@@ -6,12 +6,17 @@
 # ----- 사용자 데이터 / 작업 결과 -----
 # 올린 영상 원본과 작업 파일 (수백 MB~GB)
 projects/
+# 인스타 게시물 작업 폴더 (내 사진·카드·예약 목록·계정 토큰)
+insta/
 # 사용자가 올린 그림체 참고 이미지 (저작권이 있을 수 있음)
 style_refs/*
 !style_refs/.gitkeep
 # 이 PC의 저장 폴더 경로
 config.json
 logs/
+# 자동 업데이트가 쓰는 것 (현재 버전 기록 · 덮어쓰기 전 백업)
+update.json
+backup/
 *.mp4
 *.mov
 *.mkv

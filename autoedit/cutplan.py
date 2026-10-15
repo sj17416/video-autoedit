@@ -11,7 +11,9 @@ import re
 
 import numpy as np
 
-FILLERS = {"어", "어어", "어어어", "음", "음음", "으음", "음음음", "으", "으으", "흠", "엄", "어엄", "어음", "에", "에에", "아아", "그어", "저어"}
+FILLERS = {"어", "어어", "어어어", "음", "음음", "으음", "음음음", "으", "으으", "흠", "엄", "어엄", "어음", "에", "에에", "아아", "그어", "저어",
+           # 영어 추임새 (외국인과 대화하는 영상)
+           "um", "umm", "uh", "uhh", "uhm", "hmm", "hm", "mm", "mmm", "er", "erm"}
 FILLER_CHARS = set("어음으엄흠")
 
 
@@ -20,7 +22,7 @@ def norm(word):
 
 
 def is_filler(word):
-    n = norm(word)
+    n = norm(word).lower()
     return bool(n) and (n in FILLERS or (len(n) <= 4 and set(n) <= FILLER_CHARS))
 
 
@@ -33,7 +35,9 @@ def load_words(transcript):
         for w in seg["words"]:
             if not w["word"].strip():
                 continue
-            words.append({**w, "seg": si, "end": max(w["end"], w["start"] + 0.05), "filler": is_filler(w["word"])})
+            # cuttable=False: 위치가 대략적인 단어(OpenAI 전사의 문장 속 추임새)는 잘못 자를 수 있어 지우지 않음
+            words.append({**w, "seg": si, "end": max(w["end"], w["start"] + 0.05),
+                          "filler": is_filler(w["word"]) and w.get("cuttable", True)})
     words.sort(key=lambda w: w["start"])
     return words
 

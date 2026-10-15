@@ -26,6 +26,7 @@ h3 { font-size: 14px; margin: 14px 0 8px; }
 .pill { border: 2px solid #f4efe2; background: transparent; color: #f4efe2; border-radius: 999px; padding: 6px 14px;
   cursor: pointer; font: inherit; font-size: 13px; font-weight: 600; max-width: 460px; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; }
+a.pill { text-decoration: none; display: inline-flex; align-items: center; }
 .pill:hover { background: rgba(255,255,255,.08); }
 
 /* ---------- 레이아웃 / 카드 ---------- */
@@ -132,6 +133,8 @@ input[type=range] { width: 100%; accent-color: var(--ink); }
 .sub-row .idx { font-size: 12px; color: var(--muted); text-align: right; }
 .sub-row input { padding: 4px 8px; border-width: 2px; border-radius: 8px; }
 .sub-row input[type=number] { font-size: 13px; }
+.fx-row { grid-template-columns: 24px 82px 82px 110px 1fr 30px; }
+.fx-row select { padding: 3px 6px; border-width: 2px; border-radius: 8px; font-size: 13px; }
 .sub-row .orig { grid-column: 4 / 5; font-size: 12px; color: var(--muted); margin: -3px 0 4px 4px; }
 .sub-row button { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 18px; }
 .sub-row button:hover { color: var(--danger); }
@@ -177,3 +180,13 @@ input[type=range] { width: 100%; accent-color: var(--ink); }
   .fine-grid .span2 { grid-column: auto; }
   .topbar { padding: 12px 16px; flex-wrap: wrap; }
 }
+
+/* 새 버전 알림 단추 */
+.pill.update { background: var(--yellow); color: var(--ink); border-color: var(--ink); font-weight: 800; }
+.pill.update:hover { filter: brightness(1.07); background: var(--yellow); }
+
+/* 업데이트 단추: 늘 보이고 상태만 바뀐다 */
+.pill.update[data-state="ok"], .pill.update[data-state="checking"] { background: #ece6d8; color: #6b6354; font-weight: 700; }
+.pill.update[data-state="ok"]:hover, .pill.update[data-state="checking"]:hover { background: #ece6d8; }
+.pill.update[data-state="off"] { background: #ffe0e0; color: var(--ink); font-weight: 700; }
+.pill.update[data-state="off"]:hover { background: #ffe0e0; }

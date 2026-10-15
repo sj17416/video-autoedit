@@ -20,14 +20,24 @@ All UI text and user-facing messages are **Korean**.
 
 ## Layout
 - `app.py`: Flask API and a single background job runner. `print` output goes to the UI log via `LogBuffer`, and jobs can be stopped through `autoedit/jobctl.py`.
-- `main.py`: CLI. `launcher.pyw`: Windows launcher. `tools/make_icon.py`: regenerates `assets/icon.ico` and `web/icon.png`.
+- `main.py`: CLI. `launcher.pyw`: Windows launcher; an argument starting with `/` (e.g. `/insta`) is the page the Edge window opens, which is how the two desktop shortcuts differ.
+  `tools/make_icon.py`: regenerates `assets/icon.ico`, `icon_insta.ico` (a generic camera glyph in the app's palette — never Instagram's trademarked gradient logo), `icon_setup.ico` and `web/icon.png`.
+  `업데이트.bat` ← `tools/make_update_bat.py`: GitHub에서 최신 코드를 받아 덮어쓰는 한방 설치 파일. 사용자가 이 파일 **하나만** 받아 아무 데서나 더블클릭하면 된다 — 설치 폴더는 바탕화면 바로가기의 WorkingDirectory로, 안 되면 `launcher.pyw` 찾기로 스스로 찾는다. 읽을 수 있는 원본은 `tools/update.ps1`(UTF-8 BOM)이고, .bat에는 UTF-16LE base64로 박힌다 — `-EncodedCommand` 뒤에 **인자를 붙이면 PowerShell이 스크립트 경로로 보고 오류를 낸다**(확인함). 그래서 폴더는 `AUTOEDIT_BAT_DIR` 환경변수로 넘긴다. ps1을 고쳤으면 `python tools/make_update_bat.py`로 .bat을 다시 만들 것.
+  `tools/make_shortcut.py` (also run from `바탕화면 아이콘 만들기.bat`): creates the three desktop shortcuts through PowerShell `WScript.Shell`, asking Windows for the Desktop path so a OneDrive-redirected desktop still works.
+  `설치.bat` → `tools/setup.py`: the first-time installer the user double-clicks (check python, pip install, verify every import in a fresh subprocess with `ctranslate2` first, make icons, make shortcuts, report API-key status). Console-facing tools must stay CP949-encodable: `✔ ✖ —` are **not** in CP949 and raise `UnicodeEncodeError` once stdout is redirected, so use `[완료] [실패] -` instead.
 - `autoedit/pipeline.py`: `Project` class, which owns per-step methods, caching in `projects/<id>/work/`, settings (`DEFAULTS`), the parallel `run_all`, and the reset rules (`RESETS`).
 - `autoedit/media.py`: ffmpeg I/O (imageio-ffmpeg binary), speed presets, a frame reader that uses an ffmpeg `select` filter and a prefetch thread, keyframe-only decoding, and the h264_amf/libx264 encoder choice.
 - `autoedit/cutplan.py`: cut planning and `Timeline` (original ↔ edited time). Cuts are quantized on a grid fps (60→30, 50→25), so 30fps and 60fps outputs share the same cut times.
 - `autoedit/llm.py`: all Claude calls. It uses `claude-opus-5-5` through `client.beta.messages.stream` with the `server-side-fallback-2026-07-01` beta, `fallbacks="default"`, structured outputs via `output_config.format`, and `UserError` for messages shown to users.
 - `autoedit/imagegen.py`: OpenAI images (`OPENAI_IMAGE_MODEL`, default `gpt-image-1.5`). It draws no text in the image; captions are composited with PIL.
+- `autoedit/retouch.py`: 얼굴 보정(눈·코·턱선·피부)과 나라별 분위기(`MOODS`). YuNet 5점 랜드마크 + `cv2.remap` 변위 맵(국소 bulge / 타원 pinch / lift)이라 생성형 AI를 쓰지 않는다 → **비용 0원**. `instacard.face_edit()`이 `_cover()` 직후, 카드 크기(≈1080px) 픽셀에만 적용한다 (원본 3000px에 걸면 9초, 카드 크기면 0.05초).
 - `autoedit/subtitles.py`, `render.py`, `privacy.py`, `illustrate.py`, `transcribe.py`, `env.py`: as named.
-- `web/`: vanilla HTML/CSS/JS (neo-brutalist cream cards on navy). No build step.
+- `web/`: vanilla HTML/CSS/JS (neo-brutalist cream cards on navy). No build step. `web/insta.*` is the Instagram page (`/insta`).
+- Instagram feature: `autoedit/instacard.py` composes cards locally with PIL (0 cost). `autoedit/insta.py` handles the photo/post store in `insta/` (gitignored), dHash dedupe, frame import from projects, and Claude writing (`llm.write_insta_posts`).
+  `autoedit/instapub.py` handles official Instagram API with Instagram Login publishing (graph.instagram.com v25.0), 60-day token refresh,
+  and temp public hosting (litterbox / Cloudinary, because Meta must cURL a public `image_url`). It also runs the queue scheduler thread, which is guarded by the `insta/scheduler.lock` process lock.
+  It only uses the user's own photos (no screenshot reposting: copyright plus Instagram's 2026 originality rules). There are no unofficial login bots. Instagram allows max 5 hashtags.
+  Test publishing against a local mock Graph server (monkeypatch `instapub.API` / `host_image`). Never post to the user's real accounts in tests.
 - `blog_growth/`: separate weekly Tistory blog analyzer (`python -m blog_growth`). Reads Search Console + GA4 with a
   service-account key, picks posts with rising clicks and above-median engagement, has Claude (via `autoedit.llm.ask`)
   propose improvements/adjacent topics and write drafts, and writes an HTML report. It never publishes.
@@ -39,6 +49,8 @@ All UI text and user-facing messages are **Korean**.
 - OpenCV here is 5.0, which has no Haar cascades. Face detection uses YuNet (`models/`, auto-downloaded).
 - faster-whisper's PyAV decoding is broken here, so pass a numpy array (`read_wav_mono`).
 - `.bat` files must be **CP949 + CRLF**, and PowerShell scripts need a **UTF-8 BOM**, or the Korean text breaks.
+- Console-facing Python must stay CP949-encodable: `✔ ✖ —` are **not** in CP949, so once stdout is a pipe they raise `UnicodeEncodeError`. Use `[완료] [실패] -` (the web UI is UTF-8 and may keep the symbols).
+- Windows PowerShell 5.1 writes redirected stdout in the **console code page (CP949)**, not UTF-8, so reading it with `encoding="utf-8"` mangles Korean paths. Prefer a stdlib Windows API (`SHGetKnownFolderPath`, `winreg`) over shelling out; when PowerShell is unavoidable, use `-EncodedCommand` (UTF-16LE base64 — also immune to the script-execution policy) with `[Console]::OutputEncoding=[System.Text.Encoding]::UTF8` as the first line.
 - `.env` may contain mistakes (`OPENAI_KEY`, padded spaces). `env.load_env()` normalizes them, so always load env through it.
 - Claude Code's shell sets `ANTHROPIC_BASE_URL`. Unset it (`env -u ANTHROPIC_BASE_URL`) when testing with the user's key,
   and launch the app via `explorer.exe <lnk>` so it gets the user's real environment.
@@ -52,6 +64,20 @@ All UI text and user-facing messages are **Korean**.
 - Images: every missing scene is drawn concurrently, up to `illustrate.MAX_PARALLEL` = 10, sharing one OpenAI client with `max_retries=6` so 429s back off.
   In `run_all`, subtitle proofread/translate, plan→illustrate, and OCR scan run as three parallel jobs.
   `image_quality` (low/medium/high) trades speed for detail.
+
+## Transcription engines (tested on a Korean+English conversation, 2026-10-09)
+- `gpt-4o-transcribe-diarize` (`diarized_json`) is the OpenAI engine in use. Its text is accurate in both languages, and it returns per-utterance
+  start/end plus filler-only segments ("Hmm", "Uh"). Word times are interpolated by character count inside each utterance.
+  In-sentence fillers are marked `cuttable: False` so we never cut real speech. A 2-minute video takes about 50 s.
+- `whisper-1`: whole-file mode dropped the English part (3–30 s) entirely. Per-chunk mode misdetected Malay and hallucinated "um um um". Don't use it.
+- `gpt-transcribe`: no `verbose_json`, so no timestamps. Not usable for cutting.
+- Re-running transcribe or cut keeps `plan.json`/scenes. `_stash_scene_times`/`_remap_scene_times` move the scenes onto the new timeline through original-video time.
+
+## Variety-show effects (`autoedit/effects.py`)
+- Claude (`llm.plan_effects`) picks `pop` / `question` / `dramatic` (흑백요리사-style B&W with a band caption) / `zoom` moments from the
+  final subtitles. They are saved to `effects.json` and can be edited in the 효과 tab. SFX are synthesized in numpy (`mix_sfx`).
+- Layer order per frame: mosaic → face mosaic → effects base (zoom/B&W) → icons/cards → effect captions → subtitles.
+- Zoom/dramatic effects are skipped while a center card is shown.
 
 ## Rules
 - **Never test inside the user's `projects/<id>`.** Copy what you need into a scratch directory, or create a test

@@ -204,6 +204,7 @@ async function refreshProject() {
   $("#outFormat").textContent = fmtInfo;
   if (!dirty) { scenes = structuredClone(state.scenes); renderScenes(); }
   if (!subsDirty) { subs = structuredClone(state.subtitles?.cues || []); renderSubs(); }
+  if (!fxDirty) { fx = structuredClone(state.effects || []); renderFx(); }
   renderPii();
   renderResult();
 }
@@ -443,7 +444,47 @@ async function replaceImage(s, file) {
 $("#modalClose").onclick = () => ($("#modal").hidden = true);
 $("#modal").onclick = (e) => { if (e.target.id === "modal") $("#modal").hidden = true; };
 
-// ---------------------------------------------------------------- 4-3 개인정보
+// ---------------------------------------------------------------- 4-3 예능 효과
+let fx = [], fxDirty = false;
+const FX_NAMES = { pop: "강조", question: "물음표", dramatic: "흑백 연출", zoom: "줌" };
+function renderFx() {
+  const list = $("#fxList");
+  list.innerHTML = "";
+  $("#saveFxBtn").textContent = "효과 저장" + (fxDirty ? " *" : "");
+  $("#fxSummary").textContent = fx.length ? `효과 ${fx.length}개` : "전체 실행(또는 [효과 다시 고르기]) 때 Claude가 고릅니다.";
+  fx.forEach((e, i) => {
+    const row = document.createElement("div");
+    row.className = "sub-row fx-row";
+    row.innerHTML = `<input type="checkbox" title="사용"><input type="number" step="0.1" title="시작(초)">
+      <input type="number" step="0.1" title="끝(초)"><select></select><input type="text" placeholder="(줌은 글자 없음)"><button title="삭제">×</button>`;
+    const [chk, s, en, , txt] = row.querySelectorAll("input, select");
+    const sel = row.querySelector("select");
+    for (const [k, v] of Object.entries(FX_NAMES)) sel.add(new Option(v, k));
+    chk.checked = e.enabled !== false; s.value = e.start; en.value = e.end; sel.value = e.type; txt.value = e.text || "";
+    const mark = () => { fxDirty = true; $("#saveFxBtn").textContent = "효과 저장 *"; };
+    chk.onchange = () => { e.enabled = chk.checked; mark(); };
+    s.oninput = () => { e.start = Number(s.value); mark(); };
+    en.oninput = () => { e.end = Number(en.value); mark(); };
+    sel.onchange = () => { e.type = sel.value; mark(); };
+    txt.oninput = () => { e.text = txt.value; mark(); };
+    row.querySelector("button").onclick = () => { fx.splice(i, 1); fxDirty = true; renderFx(); };
+    list.appendChild(row);
+  });
+}
+$("#saveFxBtn").onclick = async () => {
+  await postJSON(`/api/projects/${current}/effects`, { effects: fx });
+  fxDirty = false;
+  toast("효과 저장 — [최종 렌더]를 누르면 반영됩니다", "info");
+  refreshProject();
+};
+$("#replanFxBtn").onclick = async () => {
+  if (!state.llm) return alert("Claude API 키가 필요합니다.");
+  if (!confirm("Claude가 지금 자막을 보고 효과를 새로 고릅니다. 직접 고친 효과는 사라집니다. 계속할까요?")) return;
+  fxDirty = false;
+  startJob(`/api/projects/${current}/run/effects`, {});
+};
+
+// ---------------------------------------------------------------- 4-4 개인정보
 function renderPii() {
   const ml = $("#mosaicList"), sl = $("#spokenList");
   ml.innerHTML = ""; sl.innerHTML = "";
@@ -491,7 +532,7 @@ function renderResult() {
 for (const b of document.querySelectorAll(".tabs button")) {
   b.onclick = () => {
     document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("active", x === b));
-    for (const t of ["subs", "scenes", "pii", "result"]) $(`#tab-${t}`).hidden = t !== b.dataset.tab;
+    for (const t of ["subs", "scenes", "fx", "pii", "result"]) $(`#tab-${t}`).hidden = t !== b.dataset.tab;
   };
 }
 window.addEventListener("beforeunload", (e) => { if (dirty || subsDirty) e.preventDefault(); });

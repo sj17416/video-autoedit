@@ -220,6 +220,43 @@ def draw_svg(scene, width, height, context, refs=(), error=None):
     return ask(content, system=SVG_COMMON, effort="medium")
 
 
+# ---------------------------------------------------------------- 예능 효과
+
+EFFECTS_SYSTEM = """You are the editor of a Korean variety show (예능) — think Netflix "흑백요리사" (Culinary Class Wars):
+punchy reaction captions, dramatic black-and-white beats, quick zoom-ins. You receive the final Korean subtitles
+(with times in seconds) of a talking video. Choose the moments that deserve an effect:
+- "pop": a funny/relatable line or punchline → a short yellow reaction caption, e.g. "킹정ㅋㅋ", "오히려 좋아", "찐반응".
+- "question": something surprising/absurd → e.g. "?? 실화냐", "갑분○○", "이게 된다고?".
+- "dramatic": the single most dramatic/serious reveal or confession → the screen goes black & white with a caption on a
+  black band, e.g. "충격 고백", "사우디 vs 한국". Use at most 1–2 per video.
+- "zoom": a strong reaction face or emphasis → quick zoom-in, no text (text "").
+Rules: captions ≤ 10 Korean characters, MZ variety-show tone, never insulting people, nationalities or appearance.
+Each effect 0.8–2.5 s (dramatic up to 3 s), starts on or right after the line it reacts to, no overlaps,
+at least 4 s apart. Roughly one effect per 8–12 seconds; skip boring stretches rather than forcing effects."""
+
+EFFECTS_SCHEMA = {
+    "type": "object",
+    "properties": {"effects": {"type": "array", "items": {
+        "type": "object",
+        "properties": {
+            "start": {"type": "number"},
+            "end": {"type": "number"},
+            "type": {"type": "string", "enum": ["pop", "question", "dramatic", "zoom"]},
+            "text": {"type": "string"},
+        },
+        "required": ["start", "end", "type", "text"],
+        "additionalProperties": False,
+    }}},
+    "required": ["effects"],
+    "additionalProperties": False,
+}
+
+
+def plan_effects(cues, total):
+    body = f"Video length {total:.1f}s.\n" + "\n".join(f"[{c['start']:.1f}-{c['end']:.1f}] {c['text']}" for c in cues)
+    return ask(body, system=EFFECTS_SYSTEM, schema=EFFECTS_SCHEMA, effort="medium")["effects"]
+
+
 # ---------------------------------------------------------------- 자막 교정
 
 PROOF_SYSTEM = """You proofread Korean YouTube subtitles produced by speech recognition.
@@ -257,17 +294,32 @@ TRANSLATE_SYSTEM = """You prepare Korean subtitles for a YouTube video from spee
 - Keep names, brands and the glossary terms correct. Never merge or split lines.
 Return exactly one object per input line, with the same id as the input line."""
 
+MZ_SYSTEM = """You write Korean YouTube subtitles in a playful, trendy MZ-generation tone (요즘 한국 유튜브 예능 자막 말투).
+- Lines in another language (e.g. English): translate into Korean in this tone.
+- Korean lines: rewrite lightly into this tone — keep the speaker's meaning and facts exactly.
+- Tone: casual and lively, short and punchy. Use trendy expressions naturally where they truly fit, e.g.
+  ㄹㅇ, 찐, 완전, 개-(강조), ~각, 미쳤다, 레전드, 킹받네, 오히려 좋아, 국룰, 인정, 갓-, ~하는 편, ㅋㅋ.
+  Don't force slang into every line — roughly one line in three; the rest stays natural 구어체.
+- Never use offensive, sexual, derogatory or hateful slang, and don't mock nationalities or appearance.
+- Drop filler sounds (어, 음, 그, uh, um, hmm) and false starts/stutters ("s when", "they dr how").
+- Stay faithful: don't invent jokes or meanings the speaker didn't say; style the wording, not the content.
+- Keep names, brands, numbers and glossary terms correct. Lines are consecutive pieces of one conversation:
+  a sentence may span lines, so keep each line's content in that line and make the sequence read naturally.
+- No English sentences may remain (proper nouns/brands written in Latin letters are fine). Never merge or split lines.
+Return exactly one object per input line, with the same id as the input line."""
+
 ID_RULE = ("\n\nOutput format: one object {id, text} for EVERY input id, even if the text is unchanged. "
            "Never merge two ids into one or skip an id.")
 
 
-def proofread(texts, glossary="", translate=False):
-    """자막 교정. translate=True면 한국어가 아닌 줄을 자연스러운 한국어 자막으로 번역.
+def proofread(texts, glossary="", translate=False, tone="normal"):
+    """자막 교정. translate=True면 한국어가 아닌 줄을 한국어로 번역, tone="mz"면 MZ 말투로 바꿈.
 
     줄 번호로 결과를 맞추고, 빠진 줄만 앞뒤 문맥과 함께 한 번 더 요청한다.
     그래도 빠진 줄은 원래 문장을 그대로 둔다 (작업 전체를 멈추지 않음).
     """
-    system = (TRANSLATE_SYSTEM if translate else PROOF_SYSTEM) + ID_RULE
+    base = MZ_SYSTEM if tone == "mz" else TRANSLATE_SYSTEM if translate else PROOF_SYSTEM
+    system = base + ID_RULE
     head = f"Glossary: {glossary}\n\n" if glossary.strip() else ""
 
     def request(ids, context_ids=()):
@@ -286,3 +338,99 @@ def proofread(texts, glossary="", translate=False):
         around = sorted({j for i in missing for j in range(max(0, i - 2), min(len(texts), i + 3))})
         result.update(request(missing, around))
     return [result.get(i, t) for i, t in enumerate(texts)]
+
+
+# ---------------------------------------------------------------- 인스타그램 게시물 글쓰기
+
+INSTA_LANG_NAMES = {"ko": "Korean", "ja": "Japanese", "en": "English", "fr": "French", "es": "Spanish",
+                    "pt": "Portuguese (Brazil)", "de": "German"}
+
+INSTA_SYSTEM = """You write Instagram image posts for a creator who posts their OWN photos (and frames from their own videos).
+For each attached photo you write, in every requested language, a short hook title that is drawn big on the image,
+and the post caption. Write each language natively, as a top local creator would — never a literal translation of
+another language. Hooks must make people stop scrolling, save and share, using what actually works in that market:
+- Korean: curiosity gap, 반전, concrete numbers, "~하는 법", "이거 모르면 손해", 구어체. Title ≤ 28 characters.
+- Japanese: 「〜すぎる」「知らないと損」「〜した結果」, 体言止め, natural casual polite tone. Title ≤ 30 characters.
+- English: "POV:", "Nobody talks about…", "This is why…", "I didn't expect…", specific numbers. Title ≤ 70 characters.
+- Spanish / Portuguese: warm and emotional, "¿Sabías que…?" / "Você sabia que…?", exclamations. Title ≤ 70 characters.
+- French / German: concise, witty curiosity. Title ≤ 70 characters.
+The title must ADD something beyond describing the picture — a tip, a lesson, a surprising angle, a feeling or a
+mini-story grounded in the photo and the note (Instagram treats purely descriptive overlays as unoriginal).
+Title rules: one line of thought (it is auto-wrapped), no emoji, no hashtags, no quotes around it. Wrap the 1–4 most
+important words in [square brackets] — they are painted in the highlight color. Exactly one bracketed group.
+Caption rules: 3–8 short lines with line breaks, 2–5 fitting emojis, first line continues the hook, end with a question
+or a save/share call to action. No hashtags inside the caption, no links, never mention AI.
+Truthfulness: describe only what is visible in the photo and what the creator's note says. Never invent statistics,
+studies ("research shows…"), prices, dates, names or places that are not given. If the note names the place, use it.
+Never write misleading claims; curiosity is fine, lies are not.
+If a style sample is given, follow its format and tone closely (in every language).
+Hashtags (separate field): only if a count above 0 is requested — that many specific, relevant tags without '#'
+(Instagram allows at most 5; prefer niche tags over generic ones like reels/explore/fyp). Otherwise an empty list.
+
+Reuse check (protects the creator from copyright strikes): look at each photo and set reuse_risk:
+- "screenshot": it is a screenshot of someone else's post/app/website (visible UI, like counts, usernames, captions).
+- "watermark": it carries another creator's or stock agency's watermark/logo/handle.
+- "other": clearly professional media the creator is unlikely to own (movie still, magazine scan, celebrity press photo).
+- "none": looks like the creator's own photo or video frame.
+Explain briefly in Korean in risk_reason (empty when "none")."""
+
+
+def _insta_schema(langs):
+    version = {
+        "type": "object",
+        "properties": {
+            "lang": {"type": "string", "enum": list(langs)},
+            "title": {"type": "string"},
+            "caption": {"type": "string"},
+            "hashtags": {"type": "array", "items": {"type": "string"}},
+        },
+        "required": ["lang", "title", "caption", "hashtags"],
+        "additionalProperties": False,
+    }
+    return {
+        "type": "object",
+        "properties": {"posts": {"type": "array", "items": {
+            "type": "object",
+            "properties": {
+                "photo": {"type": "integer", "description": "photo number as given"},
+                "reuse_risk": {"type": "string", "enum": ["none", "screenshot", "watermark", "other"]},
+                "risk_reason": {"type": "string"},
+                "versions": {"type": "array", "items": version},
+            },
+            "required": ["photo", "reuse_risk", "risk_reason", "versions"],
+            "additionalProperties": False,
+        }}},
+        "required": ["posts"],
+        "additionalProperties": False,
+    }
+
+
+def write_insta_posts(photos, langs, *, topic="", style="", hashtags=0, instruction=""):
+    """사진들(각 {jpeg_b64, note}) → 사진마다 언어별 {title, caption, hashtags} + 재사용 위험 판정.
+
+    반환: {사진번호(0부터): {"reuse_risk", "risk_reason", "versions": {lang: {...}}}}
+    """
+    content = []
+    for i, ph in enumerate(photos):
+        content.append({"type": "text", "text": f"Photo {i}" + (f" — creator's note: {ph['note']}" if ph.get("note") else "")})
+        content.append({"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": ph["jpeg_b64"]}})
+    names = ", ".join(f"{l} ({INSTA_LANG_NAMES[l]})" for l in langs)
+    text = (f"Languages to write for every photo: {names}.\n"
+            f"Account topic: {topic or '(not set — infer from the photos)'}\n"
+            f"Hashtag count per post: {hashtags}\n")
+    if style.strip():
+        text += f"Style sample from the creator (follow its format and tone):\n<sample>\n{style.strip()}\n</sample>\n"
+    if instruction.strip():
+        text += f"Extra request from the creator (in Korean): {instruction.strip()}\n"
+    text += f"Return one entry per photo (photo 0 to {len(photos) - 1}), each with exactly one version per language."
+    content.append({"type": "text", "text": text})
+    out = ask(content, system=INSTA_SYSTEM, schema=_insta_schema(langs), effort="medium")
+    result = {}
+    for p in out["posts"]:
+        if 0 <= p["photo"] < len(photos):
+            result[p["photo"]] = {"reuse_risk": p["reuse_risk"], "risk_reason": p["risk_reason"].strip(),
+                                  "versions": {v["lang"]: {"title": v["title"].strip(), "caption": v["caption"].strip(),
+                                                           "hashtags": [h.lstrip("#").strip() for h in v["hashtags"]
+                                                                        if h.strip()][:hashtags]}
+                                               for v in p["versions"] if v["lang"] in langs}}
+    return result
