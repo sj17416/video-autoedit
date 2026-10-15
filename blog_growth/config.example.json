@@ -1,0 +1,23 @@
+{
+  "google_key_file": "google_key.json",
+  "blogs": [
+    {
+      "name": "건강 블로그",
+      "blog_url": "https://내블로그1.tistory.com",
+      "search_console_site": "https://내블로그1.tistory.com/",
+      "ga4_property_id": "123456789",
+      "topic": "40~60대를 위한 건강 정보 (질환, 검진, 운동, 식단)",
+      "topics_per_week": 5,
+      "drafts_per_week": 2
+    },
+    {
+      "name": "노후 돈 관리",
+      "blog_url": "https://내블로그2.tistory.com",
+      "search_console_site": "https://내블로그2.tistory.com/",
+      "ga4_property_id": "987654321",
+      "topic": "40~60대 연금, 건강보험료, 퇴직, 의료비 지원 제도 안내",
+      "topics_per_week": 5,
+      "drafts_per_week": 2
+    }
+  ]
+}

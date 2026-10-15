@@ -38,6 +38,9 @@ All UI text and user-facing messages are **Korean**.
   and temp public hosting (litterbox / Cloudinary, because Meta must cURL a public `image_url`). It also runs the queue scheduler thread, which is guarded by the `insta/scheduler.lock` process lock.
   It only uses the user's own photos (no screenshot reposting: copyright plus Instagram's 2026 originality rules). There are no unofficial login bots. Instagram allows max 5 hashtags.
   Test publishing against a local mock Graph server (monkeypatch `instapub.API` / `host_image`). Never post to the user's real accounts in tests.
+- `blog_growth/`: separate weekly Tistory blog analyzer (`python -m blog_growth`). Reads Search Console + GA4 with a
+  service-account key, picks posts with rising clicks and above-median engagement, has Claude (via `autoedit.llm.ask`)
+  propose improvements/adjacent topics and write drafts, and writes an HTML report. It never publishes.
 
 ## Windows / environment gotchas (learned the hard way)
 - **No VC++ runtime on this PC.** The runtime DLLs were copied next to `ctranslate2.dll`. Entry points must
