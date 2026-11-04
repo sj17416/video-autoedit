@@ -505,6 +505,34 @@ class Project:
                  for e in items if e.get("type") in effects.KINDS]
         save_json(self.p("effects.json"), sorted(clean, key=lambda e: e["start"]))
 
+    # ------------------------------------------------------------ 블로그 글
+    def blog(self):
+        return load_json(self.p("blog.json"))
+
+    def write_blog(self, notes="", keywords=""):
+        """최종 자막(교정·번역 반영)을 원고로 티스토리용 블로그 글을 쓴다 → blog.json."""
+        print("[블로그 글] 내 영상 자막으로 티스토리 글 쓰기 (Claude)")
+        if not llm.available():
+            raise llm.UserError("Claude API 키가 필요합니다.")
+        script = "\n".join(c["text"] for c in self.subtitles()["cues"])
+        if len(script.replace(" ", "")) < 100:
+            raise llm.UserError("자막이 너무 짧아 블로그 글을 쓸 수 없습니다.")
+        post = llm.write_blog_post(script, video_name=self.name, notes=notes, keywords=keywords)
+        post["notes"], post["want_keywords"] = notes, keywords
+        save_json(self.p("blog.json"), post)
+        n = len(post["intro"] + post["conclusion"] + "".join(s["body"] for s in post["sections"]))
+        print(f"  제목: {post['title']}")
+        print(f"  소제목 {len(post['sections'])}개 · 본문 약 {n:,}자")
+
+    def save_blog(self, post):
+        old = self.blog() or {}
+        keep = ("title", "intro", "conclusion")
+        clean = {**old, **{k: str(post.get(k, old.get(k, ""))).strip() for k in keep}}
+        clean["sections"] = [{"heading": str(s.get("heading", "")).strip(), "body": str(s.get("body", "")).strip()}
+                             for s in post.get("sections", old.get("sections", []))]
+        clean["tags"] = [str(t).lstrip("#").strip() for t in post.get("tags", old.get("tags", [])) if str(t).strip()]
+        save_json(self.p("blog.json"), clean)
+
     def needs_translation(self):
         """번역 설정이 켜져 있는데 아직 번역 안 된 외국어 자막이 남아 있는지."""
         if not self.done("cut"):
@@ -651,7 +679,8 @@ class Project:
                 "output": self.out.name if self.out.exists() else None,
                 "output_path": str(self.out),
                 "subtitles": self.subtitles() if cut else None,
-                "effects": self.effects()}
+                "effects": self.effects(),
+                "blog": self.blog()}
         if cut:
             tl = self.timeline
             info["cut"] = {"fillers": len(cut["fillers"]), "cuts": max(0, len(tl.segs) - 1),

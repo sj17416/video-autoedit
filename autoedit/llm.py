@@ -434,3 +434,61 @@ def write_insta_posts(photos, langs, *, topic="", style="", hashtags=0, instruct
                                                                         if h.strip()][:hashtags]}
                                                for v in p["versions"] if v["lang"] in langs}}
     return result
+
+
+# ---------------------------------------------------------------- 블로그 글 (내 영상 자막 → 티스토리 글)
+
+BLOG_SYSTEM = """You turn a Korean YouTube creator's OWN video into a Korean blog post for their Tistory blog.
+The transcript is the creator's own speech, so the post is first-hand content: write it as the creator
+("저는 ~했습니다"), keep their real experiences, numbers, place names, product names and opinions exactly as said.
+Never invent facts, prices, dates or experiences that are not in the transcript or the creator's notes.
+
+Goal: a genuinely useful, original post that passes Google AdSense review (people-first, not a summary of a video).
+- title: 25 Korean characters or fewer, natural and searchable; put the main keyword near the front.
+- keywords: 3 search keywords a reader would actually type, taken from the content.
+- intro: 150-250 characters. Hook + what the reader will learn. No "이 영상에서는" — the post must stand on its own.
+- sections: 3-5 sections. heading uses one keyword naturally. body 500+ characters each, concrete details,
+  tips and the creator's own judgement; short paragraphs separated by blank lines; bullet lists ("- ") where they help.
+- conclusion: 150-250 characters, the creator's honest takeaway.
+- tags: 5-10 Tistory tags without "#".
+Style: polite "~습니다/~요" Korean consistent through the post, no emoji spam, no clickbait, no filler.
+Fix speech-recognition mistakes silently. Drop greetings, "구독/좋아요" requests and small talk.
+If the creator gives notes or extra opinions, weave them in as the most important part."""
+
+BLOG_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "title": {"type": "string"},
+        "keywords": {"type": "array", "items": {"type": "string"}},
+        "intro": {"type": "string"},
+        "sections": {"type": "array", "items": {
+            "type": "object",
+            "properties": {"heading": {"type": "string"}, "body": {"type": "string"}},
+            "required": ["heading", "body"],
+            "additionalProperties": False,
+        }},
+        "conclusion": {"type": "string"},
+        "tags": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["title", "keywords", "intro", "sections", "conclusion", "tags"],
+    "additionalProperties": False,
+}
+
+
+def write_blog_post(transcript, *, video_name="", notes="", keywords=""):
+    """내 영상 자막(문자열) → {title, keywords, intro, sections[{heading, body}], conclusion, tags}."""
+    text = f"Video file name: {video_name or '(unknown)'}\n<transcript>\n{transcript.strip()}\n</transcript>\n"
+    if notes.strip():
+        text += f"Creator's own notes / opinions to include (Korean):\n<notes>\n{notes.strip()}\n</notes>\n"
+    if keywords.strip():
+        text += f"Keywords the creator wants to target: {keywords.strip()}\n"
+    out = ask(text, system=BLOG_SYSTEM, schema=BLOG_SCHEMA, effort="medium")
+    return {
+        "title": out["title"].strip(),
+        "keywords": [k.strip() for k in out["keywords"] if k.strip()][:5],
+        "intro": out["intro"].strip(),
+        "sections": [{"heading": s["heading"].strip(), "body": s["body"].strip()}
+                     for s in out["sections"] if s["body"].strip()],
+        "conclusion": out["conclusion"].strip(),
+        "tags": [t.lstrip("#").strip() for t in out["tags"] if t.strip()][:10],
+    }

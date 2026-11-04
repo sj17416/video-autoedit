@@ -190,3 +190,12 @@ input[type=range] { width: 100%; accent-color: var(--ink); }
 .pill.update[data-state="ok"]:hover, .pill.update[data-state="checking"]:hover { background: #ece6d8; }
 .pill.update[data-state="off"] { background: #ffe0e0; color: var(--ink); font-weight: 700; }
 .pill.update[data-state="off"]:hover { background: #ffe0e0; }
+
+/* 블로그 탭 */
+.blog-field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 600; margin-bottom: 10px; }
+#blogBox textarea, #blogBox input[type=text] { width: 100%; box-sizing: border-box; }
+#blogBox textarea { resize: vertical; margin-bottom: 8px; font-family: inherit; line-height: 1.6; }
+.blog-head { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+.blog-title { font-size: 18px; font-weight: 700; }
+.blog-sec { display: flex; flex-direction: column; gap: 4px; margin-bottom: 4px; }
+.blog-sec input { font-weight: 700; }

@@ -265,6 +265,8 @@ def run_step(pid, step):
         fn, label = (lambda: p.illustrate(only=sid)), f"장면 {sid} 다시 그리기"
     elif step == "effects":
         fn, label = p.effects_plan, "예능 효과 고르기"
+    elif step == "blog":
+        fn, label = (lambda: p.write_blog(str(body.get("notes", "")), str(body.get("keywords", "")))), "블로그 글 쓰기"
     elif step == "clear_cache":
         fn, label = p.clear_cache, "캐시 삭제"
     elif step in STEPS:
@@ -300,6 +302,12 @@ def save_effects(pid):
 @app.post("/api/projects/<pid>/subtitles")
 def save_subtitles(pid):
     project(pid).save_subtitles(request.json["cues"])
+    return jsonify(ok=True)
+
+
+@app.post("/api/projects/<pid>/blog")
+def save_blog(pid):
+    project(pid).save_blog(request.json["post"])
     return jsonify(ok=True)
 
 
