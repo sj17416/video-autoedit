@@ -165,7 +165,7 @@ input[type=range] { width: 100%; accent-color: var(--ink); }
 .check-list .kind { margin-left: auto; font-size: 12px; color: var(--muted); }
 
 #resultBox video { width: 100%; max-height: 70vh; background: #000; border: 3px solid var(--ink); border-radius: 12px; }
-#resultBox .row { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+#resultBox .row, #blogBox .row { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
 .out-path { font-size: 13px; color: var(--muted); margin-top: 8px; word-break: break-all; }
 
 .modal { position: fixed; inset: 0; background: rgba(10,12,20,.75); display: grid; place-items: center; z-index: 20; padding: 24px; }
