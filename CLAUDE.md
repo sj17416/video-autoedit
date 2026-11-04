@@ -76,6 +76,9 @@ All UI text and user-facing messages are **Korean**.
 - Layer order per frame: mosaic → face mosaic → effects base (zoom/B&W) → icons/cards → effect captions → subtitles.
 - Zoom/dramatic effects are skipped while a center card is shown.
 
+## Blog post (블로그 탭)
+- `llm.write_blog_post` writes a Tistory post (structured output) from the project's final subtitles plus the creator's optional notes/keywords → `work/blog.json`. Run as job step `blog`; edited in the 블로그 tab, copied as rich HTML or plain text. Only the creator's own video is used as source (no third-party scripts).
+
 ## Rules
 - **Never test inside the user's `projects/<id>`.** Copy what you need into a scratch directory, or create a test
   project and delete it afterwards. Check the `project.json` name before deleting anything.

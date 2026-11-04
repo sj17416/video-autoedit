@@ -120,7 +120,7 @@ $("#refreshBtn").onclick = async () => { await loadProjects(); if (current) refr
 $("#clearCacheBtn").onclick = async () => {
   if (!current) return alert("영상을 먼저 선택하세요.");
   if (!confirm(`'${state.name}'의 작업 결과(전사·컷·장면·자막 등)를 모두 지우고 처음부터 다시 하게 할까요?\n원본 영상과 저장된 완성본은 그대로입니다.`)) return;
-  dirty = subsDirty = false;
+  dirty = subsDirty = blogDirty = false;
   startJob(`/api/projects/${current}/run/clear_cache`, {});
 };
 $("#deleteProjectBtn").onclick = async () => {
@@ -184,7 +184,7 @@ $("#styleInput").onchange = async (e) => {
 
 // ---------------------------------------------------------------- 프로젝트 화면
 async function openProject(id) {
-  if ((dirty || subsDirty) && !confirm("저장하지 않은 변경사항이 있습니다. 버리고 이동할까요?")) return;
+  if ((dirty || subsDirty || blogDirty) && !confirm("저장하지 않은 변경사항이 있습니다. 버리고 이동할까요?")) return;
   await flushSettings();
   current = id;
   dirty = subsDirty = false;
@@ -206,6 +206,7 @@ async function refreshProject() {
   if (!subsDirty) { subs = structuredClone(state.subtitles?.cues || []); renderSubs(); }
   if (!fxDirty) { fx = structuredClone(state.effects || []); renderFx(); }
   renderPii();
+  if (!blogDirty) { blog = state.blog ? structuredClone(state.blog) : null; renderBlog(); }
   renderResult();
 }
 
@@ -509,6 +510,96 @@ $("#savePiiBtn").onclick = async () => {
   refreshProject();
 };
 
+// ---------------------------------------------------------------- 4-5 블로그 글
+let blog = null, blogDirty = false;
+const esc = (t) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+function markBlogDirty() { blogDirty = true; $("#saveBlogBtn").textContent = "글 저장 *"; }
+function blogText(b) {
+  const parts = [b.intro, ...b.sections.map((s) => `## ${s.heading}\n\n${s.body}`), b.conclusion];
+  return parts.filter(Boolean).join("\n\n");
+}
+function blogHtml(b) {  // 티스토리 편집기에 붙여넣으면 소제목·목록 서식이 유지된다
+  const para = (t) => t.split(/\n{2,}/).map((p) => {
+    const lines = p.split("\n");
+    if (lines.every((l) => /^\s*[-•]\s/.test(l))) return `<ul>${lines.map((l) => `<li>${esc(l.replace(/^\s*[-•]\s/, ""))}</li>`).join("")}</ul>`;
+    return `<p>${lines.map(esc).join("<br>")}</p>`;
+  }).join("");
+  return para(b.intro) + b.sections.map((s) => `<h2>${esc(s.heading)}</h2>${para(s.body)}`).join("") + para(b.conclusion);
+}
+async function copyText(text, html) {
+  try {
+    if (html && window.ClipboardItem) {
+      await navigator.clipboard.write([new ClipboardItem({
+        "text/html": new Blob([html], { type: "text/html" }), "text/plain": new Blob([text], { type: "text/plain" }) })]);
+    } else await navigator.clipboard.writeText(text);
+    toast("복사했습니다", "info");
+  } catch { toast("복사에 실패했습니다. 글을 직접 선택해서 복사해 주세요."); }
+}
+function renderBlog() {
+  const box = $("#blogBox");
+  $("#saveBlogBtn").textContent = "글 저장" + (blogDirty ? " *" : "");
+  $("#saveBlogBtn").hidden = !blog;
+  $("#writeBlogBtn").textContent = blog ? "다시 쓰기" : "글 쓰기";
+  if (!blog) {
+    $("#blogSummary").textContent = state.subtitles ? "자막이 준비됐습니다. [글 쓰기]를 누르세요." : "[컷 편집]까지 마치면 자막으로 글을 쓸 수 있습니다.";
+    box.innerHTML = "";
+    return;
+  }
+  if (document.activeElement?.id !== "blogNotes") $("#blogNotes").value = blog.notes || "";
+  if (document.activeElement?.id !== "blogKeywords") $("#blogKeywords").value = blog.want_keywords || "";
+  const n = blogText(blog).replace(/\s/g, "").length;
+  $("#blogSummary").textContent = `본문 ${n.toLocaleString()}자(공백 제외)` + (n < 2000 ? " · 2,000자 미만이면 의견을 더 넣어 다시 써 보세요" : "");
+  box.innerHTML = `<div class="blog-head"><input type="text" class="blog-title" title="제목">
+      <span class="muted"></span></div>
+    <textarea class="blog-intro" rows="3" title="서론"></textarea><div class="blog-secs"></div>
+    <textarea class="blog-concl" rows="3" title="결론"></textarea>
+    <label class="blog-field">태그 (쉼표로 구분)<input type="text" class="blog-tags"></label>
+    <div class="row"><button class="btn small" data-c="title">제목 복사</button>
+      <button class="btn small yellow" data-c="html">본문 복사 (서식 유지)</button>
+      <button class="btn small" data-c="text">본문 복사 (텍스트)</button>
+      <button class="btn small" data-c="tags">태그 복사</button></div>`;
+  const title = box.querySelector(".blog-title"), intro = box.querySelector(".blog-intro"),
+    concl = box.querySelector(".blog-concl"), tags = box.querySelector(".blog-tags"), secs = box.querySelector(".blog-secs");
+  const titleLen = () => (box.querySelector(".blog-head .muted").textContent = `${blog.title.length}자` + (blog.keywords?.length ? ` · 키워드: ${blog.keywords.join(", ")}` : ""));
+  title.value = blog.title; intro.value = blog.intro; concl.value = blog.conclusion; tags.value = blog.tags.join(", ");
+  titleLen();
+  title.oninput = () => { blog.title = title.value; titleLen(); markBlogDirty(); };
+  intro.oninput = () => { blog.intro = intro.value; markBlogDirty(); };
+  concl.oninput = () => { blog.conclusion = concl.value; markBlogDirty(); };
+  tags.oninput = () => { blog.tags = tags.value.split(",").map((t) => t.trim()).filter(Boolean); markBlogDirty(); };
+  blog.sections.forEach((s) => {
+    const d = document.createElement("div");
+    d.className = "blog-sec";
+    d.innerHTML = `<input type="text" title="소제목"><textarea rows="8" title="본문"></textarea>`;
+    const [h, b] = d.querySelectorAll("input, textarea");
+    h.value = s.heading; b.value = s.body;
+    h.oninput = () => { s.heading = h.value; markBlogDirty(); };
+    b.oninput = () => { s.body = b.value; markBlogDirty(); };
+    secs.appendChild(d);
+  });
+  for (const btn of box.querySelectorAll("[data-c]")) {
+    btn.onclick = () => ({
+      title: () => copyText(blog.title),
+      html: () => copyText(blogText(blog), blogHtml(blog)),
+      text: () => copyText(blogText(blog)),
+      tags: () => copyText(blog.tags.join(", ")),
+    })[btn.dataset.c]();
+  }
+}
+$("#saveBlogBtn").onclick = async () => {
+  await postJSON(`/api/projects/${current}/blog`, { post: blog });
+  blogDirty = false;
+  toast("글을 저장했습니다", "info");
+  refreshProject();
+};
+$("#writeBlogBtn").onclick = async () => {
+  if (!state.llm) return alert("Claude API 키가 필요합니다.");
+  if (!state.subtitles) return alert("먼저 [컷 편집]까지 실행해 자막을 만들어 주세요.");
+  if (blog && !confirm("글을 새로 씁니다. 직접 고친 내용은 사라집니다. 계속할까요?")) return;
+  blogDirty = false;
+  startJob(`/api/projects/${current}/run/blog`, { notes: $("#blogNotes").value, keywords: $("#blogKeywords").value });
+};
+
 // ---------------------------------------------------------------- 4-4 결과
 function renderResult() {
   const box = $("#resultBox");
@@ -532,10 +623,10 @@ function renderResult() {
 for (const b of document.querySelectorAll(".tabs button")) {
   b.onclick = () => {
     document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("active", x === b));
-    for (const t of ["subs", "scenes", "fx", "pii", "result"]) $(`#tab-${t}`).hidden = t !== b.dataset.tab;
+    for (const t of ["subs", "scenes", "fx", "pii", "blog", "result"]) $(`#tab-${t}`).hidden = t !== b.dataset.tab;
   };
 }
-window.addEventListener("beforeunload", (e) => { if (dirty || subsDirty) e.preventDefault(); });
+window.addEventListener("beforeunload", (e) => { if (dirty || subsDirty || blogDirty) e.preventDefault(); });
 
 api("/api/apikeys?check=1").then(showKeys);  // 앱을 열 때 키가 실제로 맞는지 확인해서 표시
 refreshOutDir();
